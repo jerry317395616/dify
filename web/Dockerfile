@@ -30,8 +30,16 @@ COPY packages /app/packages
 # Use packageManager from package.json
 RUN corepack install
 
-# Install workspace dependencies for the Docker build environment.
-RUN pnpm install --frozen-lockfile --ignore-scripts
+# Keep the content-addressable store across interrupted builds and use bounded
+# concurrency because ARM64 binary tarballs are large and some registries close
+# highly parallel transfers early.
+RUN --mount=type=cache,id=dify-pnpm-store,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --ignore-scripts \
+        --network-concurrency=8 \
+        --fetch-retries=6 \
+        --fetch-retry-mintimeout=10000 \
+        --fetch-retry-maxtimeout=120000 \
+        --fetch-timeout=600000
 
 # build resources
 FROM base AS builder

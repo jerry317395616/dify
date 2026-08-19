@@ -98,10 +98,40 @@ ENV VIRTUAL_ENV=/app/api/.venv
 COPY --from=packages --chown=dify:dify ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
-RUN mkdir -p /usr/local/share/nltk_data \
-    && NLTK_DATA=/usr/local/share/nltk_data python -m nltk.downloader punkt_tab averaged_perceptron_tagger_eng stopwords \
-    && NLTK_DATA=/usr/local/share/nltk_data python -c "import nltk; nltk.data.find('tokenizers/punkt_tab'); nltk.data.find('taggers/averaged_perceptron_tagger_eng'); nltk.data.find('corpora/stopwords')" \
-    && chmod -R 755 /usr/local/share/nltk_data
+RUN --mount=type=cache,id=dify-nltk-data,target=/var/cache/nltk,sharing=locked set -eu; \
+    mkdir -p /usr/local/share/nltk_data; \
+    download_nltk() { \
+        archive="$1"; \
+        url="$2"; \
+        checksum="$3"; \
+        if [ -f "$archive" ] && printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c -; then \
+            return 0; \
+        fi; \
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do \
+            if curl --fail --location --silent --show-error --connect-timeout 20 --max-time 120 \
+                --continue-at - --output "$archive" "$url"; then \
+                if printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c -; then \
+                    return 0; \
+                fi; \
+                rm -f "$archive"; \
+            fi; \
+            echo "NLTK download attempt ${attempt} failed for ${url}; resuming in 2 seconds" >&2; \
+            sleep 2; \
+        done; \
+        return 1; \
+    }; \
+    download_nltk /var/cache/nltk/punkt_tab.zip \
+        https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/tokenizers/punkt_tab.zip \
+        e57f64187974277726a3417ca6f181ec5403676c717672eef6a748a7b20e0106; \
+    download_nltk /var/cache/nltk/averaged_perceptron_tagger_eng.zip \
+        https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/taggers/averaged_perceptron_tagger_eng.zip \
+        6025f530624335c67d6547d44757b357b4e79bae030a0383e9887a92c1718f0b; \
+    download_nltk /var/cache/nltk/stopwords.zip \
+        https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/corpora/stopwords.zip \
+        48c0e52d8b52546e827f53761fb30300c0ab94f70660d28bd65ba0a86270946b; \
+    python -c "import zipfile; [zipfile.ZipFile(path).extractall(target) for path, target in (('/var/cache/nltk/punkt_tab.zip', '/usr/local/share/nltk_data/tokenizers'), ('/var/cache/nltk/averaged_perceptron_tagger_eng.zip', '/usr/local/share/nltk_data/taggers'), ('/var/cache/nltk/stopwords.zip', '/usr/local/share/nltk_data/corpora'))]"; \
+    NLTK_DATA=/usr/local/share/nltk_data python -c "import nltk; nltk.data.find('tokenizers/punkt_tab'); nltk.data.find('taggers/averaged_perceptron_tagger_eng'); nltk.data.find('corpora/stopwords')"; \
+    chmod -R 755 /usr/local/share/nltk_data
 
 ENV TIKTOKEN_CACHE_DIR=/app/api/.tiktoken_cache
 

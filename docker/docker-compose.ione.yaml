@@ -1,0 +1,37 @@
+services:
+  api:
+    image: ${IONE_DIFY_API_IMAGE:-ione/dify-api:local}
+    networks:
+      - ione_qwen
+
+  api_websocket:
+    image: ${IONE_DIFY_API_IMAGE:-ione/dify-api:local}
+    networks:
+      - ione_qwen
+
+  worker:
+    image: ${IONE_DIFY_API_IMAGE:-ione/dify-api:local}
+    networks:
+      - ione_qwen
+
+  worker_beat:
+    image: ${IONE_DIFY_API_IMAGE:-ione/dify-api:local}
+    networks:
+      - ione_qwen
+
+  web:
+    image: ${IONE_DIFY_WEB_IMAGE:-ione/dify-web:local}
+
+  plugin_daemon:
+    networks:
+      - ione_qwen
+
+  agent_backend:
+    image: ${IONE_DIFY_AGENT_IMAGE:-ione/dify-agent-backend:local}
+    networks:
+      - ione_qwen
+
+networks:
+  ione_qwen:
+    name: ${IONE_QWEN_NETWORK:-ione-qwen-internal}
+    external: true
