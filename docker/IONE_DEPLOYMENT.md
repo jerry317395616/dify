@@ -42,3 +42,21 @@ docker compose \
 
 Do not expose Dify app keys in Frappe JavaScript. Store them in Frappe site
 configuration and call Dify only through `ione_agent` server methods.
+
+## Start with the I-ONE platform
+
+Keep a stable `current` symlink pointing at the active release, then install the
+included user service. Dify remains operationally independent from Bench, while
+both stacks start automatically with the server:
+
+```bash
+ln -sfn /path/to/active/dify-release ~/services/ione-dify/current
+install -Dm644 docker/systemd/ione-dify.service \
+  ~/.config/systemd/user/ione-dify.service
+systemctl --user daemon-reload
+systemctl --user enable --now ione-dify.service
+```
+
+The Compose services use restart policies for process-level recovery. The
+systemd unit provides a stable lifecycle entry point for startup, reload and
+controlled shutdown; Dify is intentionally not placed inside a Bench container.
