@@ -1,7 +1,16 @@
+x-ione-public-api-urls: &ione-public-api-urls
+  CONSOLE_API_URL: ${CONSOLE_API_URL:-}
+  CONSOLE_WEB_URL: ${CONSOLE_WEB_URL:-}
+  SERVICE_API_URL: ${SERVICE_API_URL:-}
+  APP_API_URL: ${APP_API_URL:-}
+  APP_WEB_URL: ${APP_WEB_URL:-}
+  FILES_URL: ${FILES_URL:-}
+
 services:
   api:
     image: ${IONE_DIFY_API_IMAGE:-ione/dify-api:local}
     environment:
+      <<: *ione-public-api-urls
       FRAPPE_OAUTH_BASE_URL: ${FRAPPE_OAUTH_BASE_URL:-}
       FRAPPE_OAUTH_CLIENT_ID: ${FRAPPE_OAUTH_CLIENT_ID:-}
       FRAPPE_OAUTH_CLIENT_SECRET: ${FRAPPE_OAUTH_CLIENT_SECRET:-}
@@ -14,16 +23,19 @@ services:
 
   api_websocket:
     image: ${IONE_DIFY_API_IMAGE:-ione/dify-api:local}
+    environment: *ione-public-api-urls
     networks:
       - ione_qwen
 
   worker:
     image: ${IONE_DIFY_API_IMAGE:-ione/dify-api:local}
+    environment: *ione-public-api-urls
     networks:
       - ione_qwen
 
   worker_beat:
     image: ${IONE_DIFY_API_IMAGE:-ione/dify-api:local}
+    environment: *ione-public-api-urls
     networks:
       - ione_qwen
 
@@ -32,6 +44,7 @@ services:
     environment:
       CONSOLE_WEB_URL: ${CONSOLE_WEB_URL:-}
       APP_WEB_URL: ${APP_WEB_URL:-}
+      NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-}
 
   plugin_daemon:
     networks:
