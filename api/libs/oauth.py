@@ -1,5 +1,6 @@
 import base64
 import binascii
+import hashlib
 import json
 import logging
 import secrets
@@ -59,7 +60,7 @@ class GoogleRawUserInfo(TypedDict):
 
 
 class FrappeRawUserInfo(TypedDict):
-    sub: str
+    sub: str | None
     email: str
     iss: str
     roles: list[str]
@@ -464,7 +465,8 @@ class FrappeOAuth(OAuth):
     @override
     def _transform_user_info(self, raw_info: JsonObject) -> OAuthUserInfo:
         payload = FRAPPE_RAW_USER_INFO_ADAPTER.validate_python(raw_info)
-        if not payload["sub"] or not payload["email"]:
+        email = payload["email"].strip()
+        if not email:
             raise ValueError("Frappe OAuth returned an incomplete user profile")
         try:
             issuer = self._validate_base_url(payload["iss"])
@@ -474,8 +476,16 @@ class FrappeOAuth(OAuth):
             raise ValueError("Frappe OAuth returned an unexpected issuer")
         if self.allowed_roles.isdisjoint(payload["roles"]):
             raise ValueError("Your Frappe account is not authorized to access Dify")
+
+        subject = (payload["sub"] or "").strip()
+        if not subject:
+            # Frappe returns a null `sub` until a User Social Login row for the
+            # built-in `frappe` provider exists. Keep the identity opaque and
+            # issuer-scoped while remaining compatible with those accounts.
+            identity = f"{issuer}\0{email.casefold()}".encode()
+            subject = f"frappe-email:{hashlib.sha256(identity).hexdigest()}"
         return OAuthUserInfo(
-            id=payload["sub"],
+            id=subject,
             name=payload.get("name") or "",
-            email=payload["email"],
+            email=email,
         )

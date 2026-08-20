@@ -451,6 +451,22 @@ class TestFrappeOAuth(BaseOAuthTest):
             max_retries=0,
         )
 
+    @patch("libs.oauth.ssrf_proxy.get", autospec=True)
+    def test_should_use_issuer_scoped_email_identity_when_frappe_subject_is_null(self, mock_get, oauth, mock_response):
+        mock_response.json.return_value = {
+            "sub": None,
+            "name": "Test Manager",
+            "email": " Manager@Example.com ",
+            "iss": "https://child.myyr.top",
+            "roles": ["I-ONE Agent Manager"],
+        }
+        mock_get.return_value = mock_response
+
+        user_info = oauth.get_user_info("test_token")
+
+        assert user_info.email == "Manager@Example.com"
+        assert user_info.id == "frappe-email:49ebaeac2cf36a2f293a50c45c5932915d2ba19e8d9f65903efb856a3f9a7631"
+
     @pytest.mark.parametrize(
         "profile",
         [
