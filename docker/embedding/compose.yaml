@@ -1,0 +1,48 @@
+name: ione-embedding
+
+services:
+  bge-m3:
+    image: ${IONE_EMBEDDING_IMAGE:-vllm/vllm-openai:codexfix-20260526}
+    container_name: ione-embedding-bge-m3
+    restart: unless-stopped
+    command:
+      - BAAI/bge-m3
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --served-model-name
+      - bge-m3
+      - --runner
+      - pooling
+      - --max-model-len
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.12"
+      - --enforce-eager
+    environment:
+      VLLM_API_KEY: ${IONE_EMBEDDING_API_KEY:?IONE_EMBEDDING_API_KEY is required}
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - ${IONE_HF_CACHE:-/data/hf-cache}:/root/.cache/huggingface
+    gpus: all
+    shm_size: 2gb
+    networks:
+      ione_qwen:
+        aliases:
+          - ione-embedding-bge-m3
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -H "Authorization: Bearer $${VLLM_API_KEY}"
+          http://127.0.0.1:8000/v1/models >/dev/null || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 10m
+
+networks:
+  ione_qwen:
+    name: ${IONE_QWEN_NETWORK:-ione-qwen-internal}
+    external: true

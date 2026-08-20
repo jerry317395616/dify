@@ -1,0 +1,17 @@
+[Unit]
+Description=I-ONE private BGE-M3 embedding service
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/services/ione-embedding/current
+ExecStart=/usr/bin/docker compose --env-file .env up -d --remove-orphans
+ExecReload=/usr/bin/docker compose --env-file .env up -d --remove-orphans
+ExecStop=/usr/bin/docker compose --env-file .env stop
+TimeoutStartSec=0
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=default.target

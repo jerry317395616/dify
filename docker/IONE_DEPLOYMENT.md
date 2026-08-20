@@ -101,6 +101,35 @@ docker compose \
 Do not expose Dify app keys in Frappe JavaScript. Store them in Frappe site
 configuration and call Dify only through `ione_agent` server methods.
 
+## Private knowledge-base embedding service
+
+The chat model is not used as a knowledge-base embedding model. Deploy the
+separate BGE-M3 pooling service from `docker/embedding/`; it exposes the
+OpenAI-compatible `/v1/embeddings` API only on `ione-qwen-internal` and does
+not publish a host port:
+
+```bash
+mkdir -p ~/services/ione-embedding/current
+cp docker/embedding/compose.yaml ~/services/ione-embedding/current/compose.yaml
+cp docker/embedding/.env.example ~/services/ione-embedding/current/.env
+chmod 600 ~/services/ione-embedding/current/.env
+docker compose --project-directory ~/services/ione-embedding/current \
+  --env-file ~/services/ione-embedding/current/.env up -d
+```
+
+Generate a unique `IONE_EMBEDDING_API_KEY` in the untracked `.env`. In Dify,
+add an OpenAI-API-compatible **Text Embedding** model with these settings:
+
+- model: `bge-m3`
+- API Base URL: `http://ione-embedding-bge-m3:8000/v1`
+- context size: `8192`
+- max chunks per batch: `16`
+- encoding format: `float`
+
+Set it as the workspace default Text Embedding model. The model outputs
+1024-dimensional dense vectors. Existing datasets must be re-indexed if their
+embedding model or vector dimension changes.
+
 ## Start with the I-ONE platform
 
 Keep a stable `current` symlink pointing at the active release, then install the
