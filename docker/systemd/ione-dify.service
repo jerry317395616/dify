@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=%h/services/ione-dify/current/docker
-ExecStart=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml up -d --remove-orphans
-ExecReload=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml up -d --remove-orphans
-ExecStop=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml stop
+ExecStart=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml --profile collaboration up -d --remove-orphans
+ExecReload=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml --profile collaboration up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml --profile collaboration stop
 TimeoutStartSec=0
 TimeoutStopSec=5min
 
