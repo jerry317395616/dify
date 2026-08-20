@@ -14,6 +14,7 @@ import { isCurrentWorkspaceDatasetOperatorAtom } from '@/context/workspace-state
 import { userProfileQueryOptions } from '@/features/account-profile/client'
 import { isAgentV2Enabled } from '@/features/agent-v2/feature-flag'
 import { useCanManageAgents } from '@/features/agent-v2/permissions'
+import { isIoneBrandedUi } from '@/features/ione-branding/feature-flag'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 import dynamic from '@/next/dynamic'
 import Link from '@/next/link'
@@ -37,18 +38,21 @@ export function MainNav({ className }: MainNavProps) {
     select: (data) => data.meta.currentEnv,
   })
   const agentV2Enabled = isAgentV2Enabled()
+  const ioneBrandedUi = isIoneBrandedUi()
   const canManageAgents = useCanManageAgents()
   const showEnvTag = currentEnv === 'TESTING' || currentEnv === 'DEVELOPMENT'
 
   const navItems = useMemo<MainNavItem[]>(
     () =>
-      MAIN_NAV_ROUTES.filter((route) =>
-        isMainNavRouteVisible(route, {
-          agentV2Enabled,
-          canManageAgents,
-          isCurrentWorkspaceDatasetOperator,
-          marketplaceEnabled: systemFeatures.enable_marketplace,
-        }),
+      MAIN_NAV_ROUTES.filter(
+        (route) =>
+          (!ioneBrandedUi || (route.key !== 'integrations' && route.key !== 'marketplace')) &&
+          isMainNavRouteVisible(route, {
+            agentV2Enabled,
+            canManageAgents,
+            isCurrentWorkspaceDatasetOperator,
+            marketplaceEnabled: systemFeatures.enable_marketplace,
+          }),
       ).map((route) => ({
         href: route.href,
         label: 'label' in route ? route.label : t(($) => $[route.labelKey], { ns: 'common' }),
@@ -59,6 +63,7 @@ export function MainNav({ className }: MainNavProps) {
     [
       agentV2Enabled,
       canManageAgents,
+      ioneBrandedUi,
       isCurrentWorkspaceDatasetOperator,
       systemFeatures.enable_marketplace,
       t,
@@ -132,9 +137,11 @@ export function MainNav({ className }: MainNavProps) {
           <div className="flex min-w-0 items-center gap-1 overflow-hidden">
             <AccountSection />
           </div>
-          <div className="flex shrink-0 items-center justify-center rounded-full p-1">
-            <HelpMenu />
-          </div>
+          {!ioneBrandedUi && (
+            <div className="flex shrink-0 items-center justify-center rounded-full p-1">
+              <HelpMenu />
+            </div>
+          )}
         </div>
       </div>
     </aside>

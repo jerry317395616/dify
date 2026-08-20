@@ -2,6 +2,7 @@ describe('env runtime transport', () => {
   const originalAgentV2Env = process.env.NEXT_PUBLIC_ENABLE_AGENT_V2
   const originalMarkdownFormFieldNameExtraChars =
     process.env.NEXT_PUBLIC_MARKDOWN_FORM_FIELD_NAME_EXTRA_CHARS
+  const originalIoneBrandedUi = process.env.NEXT_PUBLIC_IONE_BRANDED_UI
   const originalTurnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
   beforeEach(() => {
@@ -10,9 +11,11 @@ describe('env runtime transport', () => {
     vi.doUnmock('../utils/client')
     document.body.removeAttribute('data-enable-agent-v2')
     document.body.removeAttribute('data-enable-agent-v-2')
+    document.body.removeAttribute('data-ione-branded-ui')
     document.body.removeAttribute('data-markdown-form-field-name-extra-chars')
     document.body.removeAttribute('data-turnstile-site-key')
     delete process.env.NEXT_PUBLIC_ENABLE_AGENT_V2
+    delete process.env.NEXT_PUBLIC_IONE_BRANDED_UI
     delete process.env.NEXT_PUBLIC_MARKDOWN_FORM_FIELD_NAME_EXTRA_CHARS
     delete process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
   })
@@ -20,6 +23,8 @@ describe('env runtime transport', () => {
   afterAll(() => {
     if (originalAgentV2Env === undefined) delete process.env.NEXT_PUBLIC_ENABLE_AGENT_V2
     else process.env.NEXT_PUBLIC_ENABLE_AGENT_V2 = originalAgentV2Env
+    if (originalIoneBrandedUi === undefined) delete process.env.NEXT_PUBLIC_IONE_BRANDED_UI
+    else process.env.NEXT_PUBLIC_IONE_BRANDED_UI = originalIoneBrandedUi
     if (originalMarkdownFormFieldNameExtraChars === undefined)
       delete process.env.NEXT_PUBLIC_MARKDOWN_FORM_FIELD_NAME_EXTRA_CHARS
     else
@@ -58,6 +63,28 @@ describe('env runtime transport', () => {
     const { env } = await import('../env')
 
     expect(env.NEXT_PUBLIC_MARKDOWN_FORM_FIELD_NAME_EXTRA_CHARS).toBe('()!*&（）！＊＆－')
+  })
+
+  it('should transport the I-ONE branded UI flag through the runtime dataset', async () => {
+    document.body.setAttribute('data-ione-branded-ui', 'true')
+
+    const { env } = await import('../env')
+
+    expect(env.NEXT_PUBLIC_IONE_BRANDED_UI).toBe(true)
+  })
+
+  it('should emit the I-ONE branded UI runtime dataset attribute on the server', async () => {
+    process.env.NEXT_PUBLIC_IONE_BRANDED_UI = 'true'
+
+    vi.doMock('../utils/client', () => ({
+      isClient: false,
+      isServer: true,
+    }))
+
+    const { getDatasetMap } = await import('../env')
+    const datasetMap = getDatasetMap()
+
+    expect(datasetMap['data-ione-branded-ui']).toBe(true)
   })
 
   it('should emit Markdown form field name extra characters in the server runtime dataset', async () => {

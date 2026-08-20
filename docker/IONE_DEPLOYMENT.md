@@ -37,6 +37,11 @@ templates in the local `recommended_apps` catalog instead of Dify's remote or
 built-in application templates. Plugin Marketplace access is configured
 separately and remains available.
 
+Keep `IONE_BRANDED_UI=true` to hide the Help button, the external template
+catalog link, and the Integrations and Marketplace navigation entries. This is
+a presentation boundary only: direct administrative routes remain available
+for model and plugin maintenance.
+
 ### Frappe console SSO
 
 Create an OAuth Client on `https://child.myyr.top` with these values:

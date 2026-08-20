@@ -90,6 +90,10 @@ const clientSchema = {
    * The maximum number of tokens for segmentation
    */
   NEXT_PUBLIC_INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH: coercedNumber.default(4000),
+  /**
+   * Hide upstream navigation and support links in the I-ONE branded console.
+   */
+  NEXT_PUBLIC_IONE_BRANDED_UI: coercedBoolean.default(false),
   NEXT_PUBLIC_IS_MARKETPLACE: coercedBoolean.default(false),
   /**
    * Maximum loop count in the workflow
@@ -248,6 +252,9 @@ export const env = createEnv({
     NEXT_PUBLIC_INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH: isServer
       ? process.env.NEXT_PUBLIC_INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH
       : getRuntimeEnvFromBody('indexingMaxSegmentationTokensLength'),
+    NEXT_PUBLIC_IONE_BRANDED_UI: isServer
+      ? process.env.NEXT_PUBLIC_IONE_BRANDED_UI
+      : getRuntimeEnvFromBody('ioneBrandedUi'),
     NEXT_PUBLIC_IS_MARKETPLACE: isServer
       ? process.env.NEXT_PUBLIC_IS_MARKETPLACE
       : getRuntimeEnvFromBody('isMarketplace'),

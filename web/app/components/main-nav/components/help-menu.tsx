@@ -47,6 +47,7 @@ import {
 } from '@/context/workspace-state'
 import { env } from '@/env'
 import { userProfileQueryOptions } from '@/features/account-profile/client'
+import { isIoneBrandedUi } from '@/features/ione-branding/feature-flag'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 import { consoleQuery } from '@/service/client'
 import styles from './help-menu.module.css'
@@ -146,7 +147,7 @@ const HelpMenu = ({ triggerIcon, triggerClassName, triggerSize }: HelpMenuProps)
     if (nextOpen) setSkipRecoveryVisible(false)
   }
 
-  if (systemFeatures.branding.enabled) return null
+  if (systemFeatures.branding.enabled || isIoneBrandedUi()) return null
 
   return (
     <>

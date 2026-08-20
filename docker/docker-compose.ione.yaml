@@ -46,6 +46,7 @@ services:
     environment:
       CONSOLE_WEB_URL: ${CONSOLE_WEB_URL:-}
       APP_WEB_URL: ${APP_WEB_URL:-}
+      IONE_BRANDED_UI: ${IONE_BRANDED_UI:-true}
       NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-}
 
   plugin_daemon:

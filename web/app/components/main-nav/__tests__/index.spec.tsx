@@ -46,6 +46,7 @@ const {
   mockFetchNextInstalledAppsPage,
   mockInstalledAppsRequest,
   mockIsAgentV2Enabled,
+  mockIsIoneBrandedUi,
   mockSwitchWorkspace,
   mockToastSuccess,
   mockUninstall,
@@ -54,6 +55,7 @@ const {
   mockFetchNextInstalledAppsPage: vi.fn(),
   mockInstalledAppsRequest: vi.fn(),
   mockIsAgentV2Enabled: vi.fn(() => true),
+  mockIsIoneBrandedUi: vi.fn(() => false),
   mockSwitchWorkspace: vi.fn(),
   mockToastSuccess: vi.fn(),
   mockUninstall: vi.fn(),
@@ -168,6 +170,10 @@ const mockConsoleState = vi.hoisted(() => ({
 
 vi.mock('@/features/agent-v2/feature-flag', () => ({
   isAgentV2Enabled: () => mockIsAgentV2Enabled(),
+}))
+
+vi.mock('@/features/ione-branding/feature-flag', () => ({
+  isIoneBrandedUi: () => mockIsIoneBrandedUi(),
 }))
 
 vi.mock('@/app/components/base/amplitude', () => ({
@@ -617,6 +623,7 @@ describe('MainNav', () => {
     ]
     mockStepByStepTour.reset()
     mockIsAgentV2Enabled.mockReturnValue(true)
+    mockIsIoneBrandedUi.mockReturnValue(false)
 
     ;(usePathname as Mock).mockImplementation(() => mockPathname)
     ;(useRouter as Mock).mockReturnValue({
@@ -717,6 +724,22 @@ describe('MainNav', () => {
 
     expect(
       screen.queryByRole('link', { name: /common.mainNav.marketplace/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides branded-only navigation and help entries in the I-ONE console', () => {
+    mockIsIoneBrandedUi.mockReturnValue(true)
+
+    renderMainNav()
+
+    expect(
+      screen.queryByRole('link', { name: /common.mainNav.integrations/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /common.mainNav.marketplace/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'common.mainNav.help.openMenu' }),
     ).not.toBeInTheDocument()
   })
 
