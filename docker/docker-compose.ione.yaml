@@ -18,6 +18,8 @@ services:
       FRAPPE_OAUTH_JIT_ENABLED: ${FRAPPE_OAUTH_JIT_ENABLED:-false}
       FRAPPE_OAUTH_JIT_TENANT_ID: ${FRAPPE_OAUTH_JIT_TENANT_ID:-}
       FRAPPE_OAUTH_JIT_TENANT_ROLE: ${FRAPPE_OAUTH_JIT_TENANT_ROLE:-normal}
+      # Keep the branded deployment on its tenant-managed template catalog.
+      HOSTED_FETCH_APP_TEMPLATES_MODE: ${HOSTED_FETCH_APP_TEMPLATES_MODE:-db}
     networks:
       - ione_qwen
 

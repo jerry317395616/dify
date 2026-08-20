@@ -31,6 +31,12 @@ public Dify URL and immutable image tags in `ione.env`. The external network
 configured by `IONE_QWEN_NETWORK` must already exist; do not publish the Qwen
 container port.
 
+Keep `HOSTED_FETCH_APP_TEMPLATES_MODE=db` in `ione.env` for branded
+deployments. The create-from-template dialog then uses only listed, public
+templates in the local `recommended_apps` catalog instead of Dify's remote or
+built-in application templates. Plugin Marketplace access is configured
+separately and remains available.
+
 ### Frappe console SSO
 
 Create an OAuth Client on `https://child.myyr.top` with these values:
