@@ -1,4 +1,6 @@
+import hashlib
 import logging
+import secrets
 import urllib.parse
 
 import httpx
@@ -17,13 +19,21 @@ from extensions.ext_database import db
 from libs.datetime_utils import naive_utc_now
 from libs.helper import extract_remote_ip
 from libs.helper import timezone as validate_timezone_string
-from libs.oauth import GitHubOAuth, GoogleOAuth, OAuthUserInfo, decode_oauth_state
+from libs.oauth import (
+    FRAPPE_OAUTH_STATE_TTL_SECONDS,
+    FrappeOAuth,
+    GitHubOAuth,
+    GoogleOAuth,
+    OAuthUserInfo,
+    decode_frappe_oauth_state,
+    decode_oauth_state,
+)
 from libs.token import (
     set_access_token_to_cookie,
     set_csrf_token_to_cookie,
     set_refresh_token_to_cookie,
 )
-from models import Account, AccountStatus
+from models import Account, AccountStatus, TenantAccountRole, TenantStatus
 from services.account_service import AccountService, RegisterService, TenantService
 from services.billing_service import BillingService
 from services.errors.account import AccountNotFoundError, AccountRegisterError, SeatsLimitExceededError
@@ -33,6 +43,8 @@ from services.feature_service import FeatureService
 from .. import console_ns
 
 logger = logging.getLogger(__name__)
+
+FRAPPE_OAUTH_STATE_COOKIE = "__Host-dify-frappe-oauth-state"
 
 
 class OAuthLoginQuery(BaseModel):
@@ -70,7 +82,33 @@ def get_oauth_providers():
                 redirect_uri=dify_config.CONSOLE_API_URL + "/console/api/oauth/authorize/google",
             )
 
-        OAUTH_PROVIDERS = {"github": github_oauth, "google": google_oauth}
+        frappe_allowed_roles = {
+            role.strip() for role in dify_config.FRAPPE_OAUTH_ALLOWED_ROLES.split(",") if role.strip()
+        }
+        frappe_configured = all(
+            (
+                dify_config.FRAPPE_OAUTH_BASE_URL,
+                dify_config.FRAPPE_OAUTH_CLIENT_ID,
+                dify_config.FRAPPE_OAUTH_CLIENT_SECRET,
+                frappe_allowed_roles,
+            )
+        )
+        if not frappe_configured:
+            frappe_oauth = None
+        else:
+            try:
+                frappe_oauth = FrappeOAuth(
+                    client_id=dify_config.FRAPPE_OAUTH_CLIENT_ID or "",
+                    client_secret=dify_config.FRAPPE_OAUTH_CLIENT_SECRET or "",
+                    redirect_uri=dify_config.CONSOLE_API_URL + "/console/api/oauth/authorize/frappe",
+                    base_url=dify_config.FRAPPE_OAUTH_BASE_URL or "",
+                    allowed_roles=frappe_allowed_roles,
+                )
+            except ValueError:
+                logger.exception("Frappe OAuth configuration is invalid")
+                frappe_oauth = None
+
+        OAUTH_PROVIDERS = {"github": github_oauth, "google": google_oauth, "frappe": frappe_oauth}
         return OAUTH_PROVIDERS
 
 
@@ -143,11 +181,44 @@ def _redirect_with_console_session(account: Account, target_url: str) -> Respons
     return response
 
 
+def _frappe_oauth_state_digest(state: str) -> str:
+    return hashlib.sha256(state.encode("utf-8")).hexdigest()
+
+
+def _set_frappe_oauth_state_cookie(response: Response, state: str) -> None:
+    response.set_cookie(
+        FRAPPE_OAUTH_STATE_COOKIE,
+        _frappe_oauth_state_digest(state),
+        max_age=FRAPPE_OAUTH_STATE_TTL_SECONDS,
+        secure=True,
+        httponly=True,
+        samesite="Lax",
+        path="/",
+    )
+
+
+def _clear_frappe_oauth_state_cookie(response: Response) -> None:
+    response.delete_cookie(
+        FRAPPE_OAUTH_STATE_COOKIE,
+        secure=True,
+        httponly=True,
+        samesite="Lax",
+        path="/",
+    )
+
+
+def _frappe_oauth_state_matches_cookie(state: str | None) -> bool:
+    cookie_digest = request.cookies.get(FRAPPE_OAUTH_STATE_COOKIE)
+    if not state or not cookie_digest:
+        return False
+    return secrets.compare_digest(cookie_digest, _frappe_oauth_state_digest(state))
+
+
 @console_ns.route("/oauth/login/<provider>")
 class OAuthLogin(Resource):
     @console_ns.doc("oauth_login")
     @console_ns.doc(description="Initiate OAuth login process")
-    @console_ns.doc(params={"provider": "OAuth provider name (github/google)"})
+    @console_ns.doc(params={"provider": "OAuth provider name (github/google/frappe)"})
     @console_ns.doc(params=query_params_from_model(OAuthLoginQuery))
     @console_ns.response(302, "Redirect to OAuth authorization URL", console_ns.models[RedirectResponse.__name__])
     @console_ns.response(400, "Invalid provider")
@@ -168,14 +239,21 @@ class OAuthLogin(Resource):
             language=language,
             redirect_url=redirect_url,
         )
-        return redirect(auth_url)
+        response = redirect(auth_url)
+        if provider == "frappe":
+            state_values = urllib.parse.parse_qs(urllib.parse.urlsplit(auth_url).query).get("state", [])
+            if len(state_values) != 1 or not state_values[0]:
+                logger.error("Frappe OAuth provider did not generate a state parameter")
+                return {"error": "OAuth state generation failed"}, 500
+            _set_frappe_oauth_state_cookie(response, state_values[0])
+        return response
 
 
 @console_ns.route("/oauth/authorize/<provider>")
 class OAuthCallback(Resource):
     @console_ns.doc("oauth_callback")
     @console_ns.doc(description="Handle OAuth callback and complete login process")
-    @console_ns.doc(params={"provider": "OAuth provider name (github/google)"})
+    @console_ns.doc(params={"provider": "OAuth provider name (github/google/frappe)"})
     @console_ns.doc(params=query_params_from_model(OAuthCallbackQuery))
     @console_ns.response(302, "Redirect to console with access token", console_ns.models[RedirectResponse.__name__])
     @console_ns.response(400, "OAuth process failed")
@@ -188,7 +266,14 @@ class OAuthCallback(Resource):
 
         code = request.args.get("code")
         state = request.args.get("state")
-        oauth_state = decode_oauth_state(state)
+        if provider == "frappe" and not _frappe_oauth_state_matches_cookie(state):
+            logger.warning("Rejected Frappe OAuth state without a matching browser cookie")
+            return {"error": "Invalid OAuth state"}, 400
+        try:
+            oauth_state = decode_frappe_oauth_state(state) if provider == "frappe" else decode_oauth_state(state)
+        except ValueError:
+            logger.warning("Rejected invalid Frappe OAuth state")
+            return {"error": "Invalid OAuth state"}, 400
         invite_token = oauth_state.get("invite_token")
         timezone = _validated_timezone(oauth_state.get("timezone"))
         language = _validated_language(oauth_state.get("language"))
@@ -200,7 +285,7 @@ class OAuthCallback(Resource):
         try:
             token = oauth_provider.get_access_token(code)
             user_info = oauth_provider.get_user_info(token)
-        except httpx.RequestError as e:
+        except httpx.HTTPError as e:
             error_text = str(e)
             if isinstance(e, httpx.HTTPStatusError):
                 error_text = e.response.text
@@ -210,7 +295,9 @@ class OAuthCallback(Resource):
             logger.warning("OAuth error with %s", provider, exc_info=True)
             return redirect(f"{dify_config.CONSOLE_WEB_URL}/signin?message={urllib.parse.quote(str(e))}")
 
-        if invite_token and RegisterService.is_valid_invite_token(invite_token):
+        # Frappe SSO has a dedicated, single-workspace JIT policy. Dify invitation
+        # state must not bypass it or add a Frappe user to a different workspace.
+        if provider != "frappe" and invite_token and RegisterService.is_valid_invite_token(invite_token):
             invitation = RegisterService.get_invitation_if_token_valid(
                 None,
                 None,
@@ -233,13 +320,21 @@ class OAuthCallback(Resource):
             return _redirect_with_console_session(account, target_url)
 
         try:
-            account, oauth_new_user = _generate_account(
-                provider,
-                user_info,
-                timezone=timezone,
-                language=language,
-                ip_address=extract_remote_ip(request),
-            )
+            if provider == "frappe":
+                account, oauth_new_user = _generate_frappe_account(
+                    user_info,
+                    timezone=timezone,
+                    language=language,
+                    ip_address=extract_remote_ip(request),
+                )
+            else:
+                account, oauth_new_user = _generate_account(
+                    provider,
+                    user_info,
+                    timezone=timezone,
+                    language=language,
+                    ip_address=extract_remote_ip(request),
+                )
         except AccountNotFoundError:
             return redirect(f"{dify_config.CONSOLE_WEB_URL}/signin?message=Account not found.")
         except (WorkSpaceNotFoundError, WorkSpaceNotAllowedCreateError):
@@ -261,20 +356,24 @@ class OAuthCallback(Resource):
             account.initialized_at = naive_utc_now()
             db.session.commit()
 
-        try:
-            TenantService.create_owner_tenant_if_not_exist(account, session=db.session())
-        except Unauthorized:
-            return redirect(f"{dify_config.CONSOLE_WEB_URL}/signin?message=Workspace not found.")
-        except WorkSpaceNotAllowedCreateError:
-            return redirect(
-                f"{dify_config.CONSOLE_WEB_URL}/signin"
-                "?message=Workspace not found, please contact system admin to invite you to join in a workspace."
-            )
+        if provider != "frappe":
+            try:
+                TenantService.create_owner_tenant_if_not_exist(account, session=db.session())
+            except Unauthorized:
+                return redirect(f"{dify_config.CONSOLE_WEB_URL}/signin?message=Workspace not found.")
+            except WorkSpaceNotAllowedCreateError:
+                return redirect(
+                    f"{dify_config.CONSOLE_WEB_URL}/signin"
+                    "?message=Workspace not found, please contact system admin to invite you to join in a workspace."
+                )
 
         target_url = _get_redirect_target(redirect_url)
         query_char = "&" if "?" in target_url else "?"
         target_url = f"{target_url}{query_char}oauth_new_user={str(oauth_new_user).lower()}"
-        return _redirect_with_console_session(account, target_url)
+        response = _redirect_with_console_session(account, target_url)
+        if provider == "frappe":
+            _clear_frappe_oauth_state_cookie(response)
+        return response
 
 
 def _get_account_by_openid_or_email(provider: str, user_info: OAuthUserInfo) -> Account | None:
@@ -284,6 +383,72 @@ def _get_account_by_openid_or_email(provider: str, user_info: OAuthUserInfo) -> 
         account = AccountService.get_account_by_email_with_case_fallback(user_info.email, session=db.session())
 
     return account
+
+
+def _generate_frappe_account(
+    user_info: OAuthUserInfo,
+    timezone: str | None = None,
+    language: str | None = None,
+    ip_address: str | None = None,
+) -> tuple[Account, bool]:
+    """Resolve a Frappe identity without opening Dify's global registration path.
+
+    JIT provisioning is fail-closed and can only add a configured non-owner
+    member to one explicitly configured, existing tenant. It never creates a
+    personal tenant.
+    """
+    session = db.session()
+    account = _get_account_by_openid_or_email("frappe", user_info)
+    oauth_new_user = False
+    jit_tenant = None
+    jit_tenant_role = TenantAccountRole.NORMAL
+
+    if dify_config.FRAPPE_OAUTH_JIT_ENABLED:
+        tenant_id = (dify_config.FRAPPE_OAUTH_JIT_TENANT_ID or "").strip()
+        if not tenant_id:
+            raise WorkSpaceNotFoundError()
+        try:
+            jit_tenant_role = TenantAccountRole(dify_config.FRAPPE_OAUTH_JIT_TENANT_ROLE.strip())
+        except ValueError as e:
+            raise WorkSpaceNotFoundError() from e
+        if jit_tenant_role == TenantAccountRole.OWNER:
+            raise WorkSpaceNotFoundError()
+        jit_tenant = TenantService.get_tenant_by_id(tenant_id, session=session)
+        if not jit_tenant or jit_tenant.status != TenantStatus.NORMAL:
+            raise WorkSpaceNotFoundError()
+
+    if not account:
+        if not jit_tenant:
+            raise AccountRegisterError(description="Invalid email or password")
+        account = RegisterService.register(
+            email=user_info.email.lower(),
+            name=user_info.name or "Dify",
+            password=None,
+            open_id=user_info.id,
+            provider="frappe",
+            language=_preferred_interface_language(language),
+            timezone=timezone,
+            ip_address=ip_address,
+            is_setup=True,
+            create_workspace_required=False,
+            session=session,
+        )
+        oauth_new_user = True
+
+    if jit_tenant:
+        if not TenantService.is_member(account, jit_tenant, session=session):
+            TenantService.create_tenant_member(
+                jit_tenant,
+                account,
+                session,
+                role=jit_tenant_role.value,
+            )
+        TenantService.switch_tenant(account, jit_tenant.id, session=session)
+    elif not TenantService.get_join_tenants(account, session=session):
+        raise WorkSpaceNotFoundError()
+
+    AccountService.link_account_integrate("frappe", user_info.id, account, session=session)
+    return account, oauth_new_user
 
 
 def _generate_account(

@@ -8,20 +8,33 @@ import pytest
 from flask import Flask
 
 from controllers.console.auth.oauth import (
+    FRAPPE_OAUTH_STATE_COOKIE,
     OAuthCallback,
     OAuthLogin,
+    _frappe_oauth_state_digest,
     _generate_account,
+    _generate_frappe_account,
     _get_account_by_openid_or_email,
     get_oauth_providers,
 )
-from libs.oauth import OAuthUserInfo, encode_oauth_state
-from models.account import AccountStatus
+from libs.oauth import OAuthUserInfo, encode_frappe_oauth_state, encode_oauth_state
+from models.account import AccountStatus, TenantAccountRole, TenantStatus
 from services.errors.account import AccountRegisterError
+from services.errors.workspace import WorkSpaceNotFoundError
 
 
 @pytest.fixture(autouse=True)
 def _oauth_config(config_overrides) -> None:
-    config_overrides(CONSOLE_WEB_URL="http://localhost:3000")
+    config_overrides(
+        CONSOLE_WEB_URL="http://localhost:3000",
+        FRAPPE_OAUTH_BASE_URL=None,
+        FRAPPE_OAUTH_CLIENT_ID=None,
+        FRAPPE_OAUTH_CLIENT_SECRET=None,
+        FRAPPE_OAUTH_ALLOWED_ROLES="",
+        FRAPPE_OAUTH_JIT_ENABLED=False,
+        FRAPPE_OAUTH_JIT_TENANT_ID=None,
+        FRAPPE_OAUTH_JIT_TENANT_ROLE="normal",
+    )
 
 
 class TestGetOAuthProviders:
@@ -59,6 +72,27 @@ class TestGetOAuthProviders:
 
         assert (providers["github"] is not None) == expected_github
         assert (providers["google"] is not None) == expected_google
+
+    def test_should_configure_frappe_provider_only_when_allowlist_is_complete(self, app: Flask, config_overrides):
+        config_overrides(
+            FRAPPE_OAUTH_BASE_URL="https://child.myyr.top",
+            FRAPPE_OAUTH_CLIENT_ID="frappe_client_id",
+            FRAPPE_OAUTH_CLIENT_SECRET="frappe_client_secret",
+            FRAPPE_OAUTH_ALLOWED_ROLES="System Manager, I-ONE Agent Manager",
+            CONSOLE_API_URL="https://dify.myyr.top",
+        )
+
+        with app.app_context():
+            providers = get_oauth_providers()
+
+        frappe_provider = providers["frappe"]
+        assert frappe_provider is not None
+        assert frappe_provider.redirect_uri == "https://dify.myyr.top/console/api/oauth/authorize/frappe"
+        assert frappe_provider.allowed_roles == frozenset({"System Manager", "I-ONE Agent Manager"})
+
+        config_overrides(FRAPPE_OAUTH_ALLOWED_ROLES="")
+        with app.app_context():
+            assert get_oauth_providers()["frappe"] is None
 
 
 class TestOAuthLogin:
@@ -152,6 +186,40 @@ class TestOAuthLogin:
         )
         mock_redirect.assert_called_once_with("https://github.com/login/oauth/authorize?...")
 
+    @patch("controllers.console.auth.oauth.get_oauth_providers")
+    @patch("controllers.console.auth.oauth.redirect")
+    def test_should_support_direct_frappe_login_route(
+        self,
+        mock_redirect,
+        mock_get_providers,
+        resource: OAuthLogin,
+        app: Flask,
+        mock_oauth_provider,
+    ):
+        auth_url = "https://child.myyr.top/api/method/frappe.integrations.oauth2.authorize?state=signed-state"
+        mock_oauth_provider.get_authorization_url.return_value = auth_url
+        mock_get_providers.return_value = {"frappe": mock_oauth_provider}
+
+        with app.test_request_context("/console/api/oauth/login/frappe?redirect_url=/apps"):
+            resource.get("frappe")
+
+        mock_oauth_provider.get_authorization_url.assert_called_once_with(
+            invite_token=None,
+            timezone=None,
+            language=None,
+            redirect_url="/apps",
+        )
+        mock_redirect.assert_called_once_with(auth_url)
+        mock_redirect.return_value.set_cookie.assert_called_once_with(
+            FRAPPE_OAUTH_STATE_COOKIE,
+            _frappe_oauth_state_digest("signed-state"),
+            max_age=600,
+            secure=True,
+            httponly=True,
+            samesite="Lax",
+            path="/",
+        )
+
     @pytest.mark.parametrize(
         ("provider", "expected_error"),
         [
@@ -230,6 +298,83 @@ class TestOAuthCallback:
             ip_address="203.0.113.10",
         )
         mock_redirect.assert_called_once_with("http://localhost:3000?oauth_new_user=true")
+
+    @patch("controllers.console.auth.oauth.get_oauth_providers")
+    @patch("controllers.console.auth.oauth._generate_frappe_account")
+    @patch("controllers.console.auth.oauth.AccountService")
+    @patch("controllers.console.auth.oauth.TenantService")
+    @patch("controllers.console.auth.oauth.redirect")
+    def test_should_use_frappe_jit_policy_without_creating_owner_workspace(
+        self,
+        mock_redirect,
+        mock_tenant_service,
+        mock_account_service,
+        mock_generate_frappe_account,
+        mock_get_providers,
+        resource: OAuthCallback,
+        app: Flask,
+        oauth_setup,
+        config_overrides,
+    ):
+        config_overrides(SECRET_KEY="frappe-oauth-state-secret")
+        mock_get_providers.return_value = {"frappe": oauth_setup["provider"]}
+        mock_generate_frappe_account.return_value = (oauth_setup["account"], True)
+        mock_account_service.login.return_value = oauth_setup["token_pair"]
+        state = encode_frappe_oauth_state(redirect_url="/apps")
+        cookie_digest = _frappe_oauth_state_digest(state)
+
+        with (
+            patch("controllers.console.auth.oauth.extract_remote_ip", return_value="203.0.113.10"),
+            app.test_request_context(
+                f"/console/api/oauth/authorize/frappe?code=test_code&state={state}",
+                environ_base={"HTTP_COOKIE": f"{FRAPPE_OAUTH_STATE_COOKIE}={cookie_digest}"},
+            ),
+        ):
+            resource.get("frappe")
+
+        mock_generate_frappe_account.assert_called_once_with(
+            oauth_setup["provider"].get_user_info.return_value,
+            timezone=None,
+            language=None,
+            ip_address="203.0.113.10",
+        )
+        mock_tenant_service.create_owner_tenant_if_not_exist.assert_not_called()
+        mock_redirect.assert_called_once_with("/apps?oauth_new_user=true")
+        mock_redirect.return_value.delete_cookie.assert_called_once_with(
+            FRAPPE_OAUTH_STATE_COOKIE,
+            secure=True,
+            httponly=True,
+            samesite="Lax",
+            path="/",
+        )
+
+    @pytest.mark.parametrize("cookie_digest", [None, "mismatched-digest"])
+    @patch("controllers.console.auth.oauth.get_oauth_providers")
+    def test_should_reject_frappe_state_without_matching_cookie_before_token_exchange(
+        self,
+        mock_get_providers,
+        resource: OAuthCallback,
+        app: Flask,
+        oauth_setup,
+        config_overrides,
+        cookie_digest,
+    ):
+        config_overrides(SECRET_KEY="frappe-oauth-state-secret")
+        mock_get_providers.return_value = {"frappe": oauth_setup["provider"]}
+        state = encode_frappe_oauth_state(redirect_url="/apps")
+        environ_base = {}
+        if cookie_digest:
+            environ_base["HTTP_COOKIE"] = f"{FRAPPE_OAUTH_STATE_COOKIE}={cookie_digest}"
+
+        with app.test_request_context(
+            f"/console/api/oauth/authorize/frappe?code=test_code&state={state}",
+            environ_base=environ_base,
+        ):
+            response, status_code = resource.get("frappe")
+
+        assert status_code == 400
+        assert response == {"error": "Invalid OAuth state"}
+        oauth_setup["provider"].get_access_token.assert_not_called()
 
     @pytest.mark.parametrize(
         ("exception", "expected_error"),
@@ -443,6 +588,117 @@ class TestOAuthCallback:
         #     "http://localhost:3000/signin?message=Account is closed."
         # )
         # Expected: mock_account_service.login.assert_not_called()
+
+
+class TestFrappeAccountGeneration:
+    @pytest.fixture
+    def user_info(self):
+        return OAuthUserInfo(id="frappe-subject", name="Frappe Manager", email="Manager@Example.com")
+
+    @patch("controllers.console.auth.oauth._get_account_by_openid_or_email", return_value=None)
+    @patch("controllers.console.auth.oauth.RegisterService")
+    def test_should_not_jit_provision_by_default(
+        self,
+        mock_register_service,
+        mock_get_account,
+        app: Flask,
+        user_info: OAuthUserInfo,
+        config_overrides,
+    ):
+        config_overrides(FRAPPE_OAUTH_JIT_ENABLED=False)
+
+        with app.test_request_context(headers={"Accept-Language": "en-US"}):
+            with pytest.raises(AccountRegisterError):
+                _generate_frappe_account(user_info)
+
+        mock_get_account.assert_called_once_with("frappe", user_info)
+        mock_register_service.register.assert_not_called()
+
+    @patch("controllers.console.auth.oauth._get_account_by_openid_or_email", return_value=None)
+    @patch("controllers.console.auth.oauth.AccountService")
+    @patch("controllers.console.auth.oauth.RegisterService")
+    @patch("controllers.console.auth.oauth.TenantService")
+    def test_should_jit_into_configured_existing_tenant_without_personal_workspace(
+        self,
+        mock_tenant_service,
+        mock_register_service,
+        mock_account_service,
+        mock_get_account,
+        app: Flask,
+        user_info: OAuthUserInfo,
+        config_overrides,
+    ):
+        config_overrides(
+            FRAPPE_OAUTH_JIT_ENABLED=True,
+            FRAPPE_OAUTH_JIT_TENANT_ID="target-tenant-id",
+            FRAPPE_OAUTH_JIT_TENANT_ROLE="admin",
+        )
+        tenant = MagicMock(id="target-tenant-id", status=TenantStatus.NORMAL)
+        account = MagicMock()
+        mock_tenant_service.get_tenant_by_id.return_value = tenant
+        mock_tenant_service.is_member.return_value = False
+        mock_register_service.register.return_value = account
+
+        with app.test_request_context(headers={"Accept-Language": "en-US"}):
+            result, oauth_new_user = _generate_frappe_account(
+                user_info,
+                timezone="Asia/Shanghai",
+                ip_address="203.0.113.10",
+            )
+
+        assert result is account
+        assert oauth_new_user is True
+        mock_register_service.register.assert_called_once_with(
+            email="manager@example.com",
+            name="Frappe Manager",
+            password=None,
+            open_id="frappe-subject",
+            provider="frappe",
+            language="en-US",
+            timezone="Asia/Shanghai",
+            ip_address="203.0.113.10",
+            is_setup=True,
+            create_workspace_required=False,
+            session=ANY,
+        )
+        mock_tenant_service.create_tenant_member.assert_called_once_with(
+            tenant,
+            account,
+            ANY,
+            role=TenantAccountRole.ADMIN.value,
+        )
+        mock_tenant_service.switch_tenant.assert_called_once_with(account, "target-tenant-id", session=ANY)
+        mock_account_service.link_account_integrate.assert_called_once_with(
+            "frappe", "frappe-subject", account, session=ANY
+        )
+        mock_tenant_service.create_owner_tenant.assert_not_called()
+
+    @pytest.mark.parametrize("tenant_role", ["owner", "unknown"])
+    @patch("controllers.console.auth.oauth._get_account_by_openid_or_email", return_value=None)
+    @patch("controllers.console.auth.oauth.RegisterService")
+    @patch("controllers.console.auth.oauth.TenantService")
+    def test_should_reject_unsafe_or_invalid_jit_role(
+        self,
+        mock_tenant_service,
+        mock_register_service,
+        mock_get_account,
+        app: Flask,
+        user_info: OAuthUserInfo,
+        config_overrides,
+        tenant_role,
+    ):
+        config_overrides(
+            FRAPPE_OAUTH_JIT_ENABLED=True,
+            FRAPPE_OAUTH_JIT_TENANT_ID="target-tenant-id",
+            FRAPPE_OAUTH_JIT_TENANT_ROLE=tenant_role,
+        )
+
+        with app.test_request_context():
+            with pytest.raises(WorkSpaceNotFoundError):
+                _generate_frappe_account(user_info)
+
+        mock_tenant_service.get_tenant_by_id.assert_not_called()
+        mock_register_service.register.assert_not_called()
 
 
 class TestAccountGeneration:

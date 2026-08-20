@@ -1009,6 +1009,41 @@ class AuthConfig(BaseSettings):
         default=None,
     )
 
+    FRAPPE_OAUTH_BASE_URL: str | None = Field(
+        description="HTTPS base URL of the Frappe site used as an OAuth identity provider",
+        default=None,
+    )
+
+    FRAPPE_OAUTH_CLIENT_ID: str | None = Field(
+        description="OAuth client ID issued by the Frappe site",
+        default=None,
+    )
+
+    FRAPPE_OAUTH_CLIENT_SECRET: str | None = Field(
+        description="OAuth client secret issued by the Frappe site",
+        default=None,
+    )
+
+    FRAPPE_OAUTH_ALLOWED_ROLES: str = Field(
+        description="Comma-separated Frappe roles permitted to sign in to the Dify console",
+        default="",
+    )
+
+    FRAPPE_OAUTH_JIT_ENABLED: bool = Field(
+        description="Allow authorized Frappe users without a Dify account to be provisioned on first login",
+        default=False,
+    )
+
+    FRAPPE_OAUTH_JIT_TENANT_ID: str | None = Field(
+        description="Existing Dify tenant that receives Frappe users when JIT provisioning is enabled",
+        default=None,
+    )
+
+    FRAPPE_OAUTH_JIT_TENANT_ROLE: str = Field(
+        description="Non-owner Dify tenant role assigned to users provisioned through Frappe OAuth",
+        default="normal",
+    )
+
     ACCESS_TOKEN_EXPIRE_MINUTES: PositiveInt = Field(
         description="Expiration time for access tokens in minutes",
         default=60,

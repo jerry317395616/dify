@@ -4,7 +4,14 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from libs.oauth import GitHubOAuth, GoogleOAuth, OAuthUserInfo, decode_oauth_state
+from libs.oauth import (
+    FrappeOAuth,
+    GitHubOAuth,
+    GoogleOAuth,
+    OAuthUserInfo,
+    decode_frappe_oauth_state,
+    decode_oauth_state,
+)
 
 
 class BaseOAuthTest:
@@ -339,6 +346,137 @@ class TestGoogleOAuth(BaseOAuthTest):
 
         with pytest.raises(exception_type):
             oauth.get_raw_user_info("invalid_token")
+
+
+class TestFrappeOAuth(BaseOAuthTest):
+    @pytest.fixture
+    def oauth(self, oauth_config, config_overrides):
+        config_overrides(SECRET_KEY="frappe-oauth-state-secret")
+        return FrappeOAuth(
+            oauth_config["client_id"],
+            oauth_config["client_secret"],
+            oauth_config["redirect_uri"],
+            base_url="https://child.myyr.top/",
+            allowed_roles={"I-ONE Agent Manager"},
+        )
+
+    def test_should_generate_authorization_url_with_signed_state(self, oauth, oauth_config):
+        url = oauth.get_authorization_url(timezone="Asia/Shanghai", redirect_url="/apps")
+        parsed, params = self.parse_auth_url(url)
+
+        assert parsed.scheme == "https"
+        assert parsed.netloc == "child.myyr.top"
+        assert parsed.path == "/api/method/frappe.integrations.oauth2.authorize"
+        assert params["client_id"] == [oauth_config["client_id"]]
+        assert params["redirect_uri"] == [oauth_config["redirect_uri"]]
+        assert params["response_type"] == ["code"]
+        assert params["scope"] == ["openid"]
+        assert decode_frappe_oauth_state(params["state"][0]) == {
+            "timezone": "Asia/Shanghai",
+            "redirect_url": "/apps",
+        }
+
+    def test_should_reject_tampered_state(self, oauth):
+        url = oauth.get_authorization_url(redirect_url="/apps")
+        _, params = self.parse_auth_url(url)
+        state_parts = params["state"][0].split(".")
+        state_parts[1] = ("A" if state_parts[1][0] != "A" else "B") + state_parts[1][1:]
+
+        with pytest.raises(ValueError, match="invalid or expired"):
+            decode_frappe_oauth_state(".".join(state_parts))
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "http://child.myyr.top",
+            "https://user:password@child.myyr.top",
+            "https://child.myyr.top?redirect=evil",
+            "https://child.myyr.top/nested",
+            "//child.myyr.top",
+        ],
+    )
+    def test_should_require_safe_https_base_url(self, oauth_config, base_url):
+        with pytest.raises(ValueError, match="HTTPS origin"):
+            FrappeOAuth(
+                oauth_config["client_id"],
+                oauth_config["client_secret"],
+                oauth_config["redirect_uri"],
+                base_url=base_url,
+                allowed_roles={"I-ONE Agent Manager"},
+            )
+
+    @patch("libs.oauth.ssrf_proxy.post", autospec=True)
+    def test_should_exchange_code_through_ssrf_client(self, mock_post, oauth, oauth_config, mock_response):
+        mock_response.json.return_value = {"access_token": "frappe_access_token"}
+        mock_post.return_value = mock_response
+
+        assert oauth.get_access_token("test_code") == "frappe_access_token"
+
+        mock_response.raise_for_status.assert_called_once_with()
+        mock_post.assert_called_once_with(
+            "https://child.myyr.top/api/method/frappe.integrations.oauth2.get_token",
+            data={
+                "client_id": oauth_config["client_id"],
+                "client_secret": oauth_config["client_secret"],
+                "code": "test_code",
+                "grant_type": "authorization_code",
+                "redirect_uri": oauth_config["redirect_uri"],
+            },
+            headers={"Accept": "application/json"},
+            max_retries=0,
+        )
+
+    @patch("libs.oauth.ssrf_proxy.get", autospec=True)
+    def test_should_accept_matching_issuer_and_allowed_role(self, mock_get, oauth, mock_response):
+        mock_response.json.return_value = {
+            "sub": "frappe-subject",
+            "name": "Test Manager",
+            "email": "manager@example.com",
+            "iss": "https://child.myyr.top",
+            "roles": ["System User", "I-ONE Agent Manager"],
+        }
+        mock_get.return_value = mock_response
+
+        user_info = oauth.get_user_info("test_token")
+
+        assert user_info == OAuthUserInfo(
+            id="frappe-subject",
+            name="Test Manager",
+            email="manager@example.com",
+        )
+        mock_response.raise_for_status.assert_called_once_with()
+        mock_get.assert_called_once_with(
+            "https://child.myyr.top/api/method/frappe.integrations.oauth2.openid_profile",
+            headers={"Accept": "application/json", "Authorization": "Bearer test_token"},
+            max_retries=0,
+        )
+
+    @pytest.mark.parametrize(
+        "profile",
+        [
+            {
+                "sub": "frappe-subject",
+                "name": "Test User",
+                "email": "user@example.com",
+                "iss": "https://child.myyr.top",
+                "roles": ["System User"],
+            },
+            {
+                "sub": "frappe-subject",
+                "name": "Test Manager",
+                "email": "manager@example.com",
+                "iss": "https://other.example.com",
+                "roles": ["I-ONE Agent Manager"],
+            },
+        ],
+    )
+    @patch("libs.oauth.ssrf_proxy.get", autospec=True)
+    def test_should_reject_disallowed_role_or_issuer(self, mock_get, oauth, mock_response, profile):
+        mock_response.json.return_value = profile
+        mock_get.return_value = mock_response
+
+        with pytest.raises(ValueError):
+            oauth.get_user_info("test_token")
 
 
 class TestOAuthUserInfo:

@@ -2,6 +2,7 @@ import base64
 import binascii
 import json
 import logging
+import secrets
 import urllib.parse
 from dataclasses import dataclass
 from typing import NotRequired, TypedDict, override
@@ -9,7 +10,9 @@ from typing import NotRequired, TypedDict, override
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
+from core.helper import ssrf_proxy
 from core.helper.http_client_pooling import get_pooled_http_client
+from libs import jws
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +58,24 @@ class GoogleRawUserInfo(TypedDict):
     email: str
 
 
+class FrappeRawUserInfo(TypedDict):
+    sub: str
+    email: str
+    iss: str
+    roles: list[str]
+    name: NotRequired[str | None]
+
+
 ACCESS_TOKEN_RESPONSE_ADAPTER = TypeAdapter(AccessTokenResponse)
 OAUTH_STATE_ADAPTER = TypeAdapter(OAuthState)
 GITHUB_RAW_USER_INFO_ADAPTER = TypeAdapter(GitHubRawUserInfo)
 GITHUB_EMAIL_RECORDS_ADAPTER = TypeAdapter(list[GitHubEmailRecord])
 GOOGLE_RAW_USER_INFO_ADAPTER = TypeAdapter(GoogleRawUserInfo)
+FRAPPE_RAW_USER_INFO_ADAPTER = TypeAdapter(FrappeRawUserInfo)
+
+FRAPPE_OAUTH_STATE_AUDIENCE = "console.oauth.frappe_state"
+FRAPPE_OAUTH_STATE_TTL_SECONDS = 10 * 60
+_OAUTH_STATE_FIELDS = ("invite_token", "timezone", "language", "redirect_url")
 
 
 @dataclass
@@ -101,6 +117,47 @@ def decode_oauth_state(state: str | None) -> OAuthState:
         return OAUTH_STATE_ADAPTER.validate_python(json.loads(raw_state))
     except (binascii.Error, ValueError, UnicodeDecodeError, json.JSONDecodeError, ValidationError):
         return {}
+
+
+def encode_frappe_oauth_state(
+    invite_token: str | None = None,
+    timezone: str | None = None,
+    language: str | None = None,
+    redirect_url: str | None = None,
+) -> str:
+    payload: dict[str, str] = {"nonce": secrets.token_urlsafe(16)}
+    if invite_token:
+        payload["invite_token"] = invite_token
+    if timezone:
+        payload["timezone"] = timezone
+    if language:
+        payload["language"] = language
+    if redirect_url:
+        payload["redirect_url"] = redirect_url
+    return jws.sign(
+        jws.KeySet.from_shared_secret(),
+        payload=payload,
+        aud=FRAPPE_OAUTH_STATE_AUDIENCE,
+        ttl_seconds=FRAPPE_OAUTH_STATE_TTL_SECONDS,
+    )
+
+
+def decode_frappe_oauth_state(state: str | None) -> OAuthState:
+    if not state:
+        raise ValueError("Frappe OAuth state is required")
+    try:
+        claims = jws.verify(
+            jws.KeySet.from_shared_secret(),
+            state,
+            expected_aud=FRAPPE_OAUTH_STATE_AUDIENCE,
+        )
+        nonce = claims.get("nonce")
+        if not isinstance(nonce, str) or not nonce:
+            raise ValueError("Frappe OAuth state nonce is missing")
+        payload = {key: claims[key] for key in _OAUTH_STATE_FIELDS if key in claims}
+        return OAUTH_STATE_ADAPTER.validate_python(payload)
+    except (jws.KeySetError, jws.VerifyError, ValidationError, ValueError) as e:
+        raise ValueError("Frappe OAuth state is invalid or expired") from e
 
 
 def _json_object(response: httpx.Response) -> JsonObject:
@@ -308,3 +365,117 @@ class GoogleOAuth(OAuth):
     def _transform_user_info(self, raw_info: JsonObject) -> OAuthUserInfo:
         payload = GOOGLE_RAW_USER_INFO_ADAPTER.validate_python(raw_info)
         return OAuthUserInfo(id=str(payload["sub"]), name="", email=payload["email"])
+
+
+class FrappeOAuth(OAuth):
+    """OAuth client for a trusted Frappe site acting as the identity provider."""
+
+    _AUTHORIZE_PATH = "/api/method/frappe.integrations.oauth2.authorize"
+    _TOKEN_PATH = "/api/method/frappe.integrations.oauth2.get_token"
+    _USER_INFO_PATH = "/api/method/frappe.integrations.oauth2.openid_profile"
+
+    def __init__(
+        self,
+        client_id: str,
+        client_secret: str,
+        redirect_uri: str,
+        base_url: str,
+        allowed_roles: set[str],
+    ):
+        super().__init__(client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri)
+        self.base_url = self._validate_base_url(base_url)
+        self.allowed_roles = frozenset(role.strip() for role in allowed_roles if role.strip())
+        if not self.allowed_roles:
+            raise ValueError("Frappe OAuth requires at least one allowed role")
+
+    @staticmethod
+    def _validate_base_url(base_url: str) -> str:
+        parsed = urllib.parse.urlsplit(base_url.strip())
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            raise ValueError("Frappe OAuth base URL must be an HTTPS origin without credentials, query, or fragment")
+
+        return urllib.parse.urlunsplit(("https", parsed.netloc.lower(), "", "", ""))
+
+    def _endpoint(self, path: str) -> str:
+        return f"{self.base_url}{path}"
+
+    @override
+    def get_authorization_url(
+        self,
+        invite_token: str | None = None,
+        timezone: str | None = None,
+        language: str | None = None,
+        redirect_url: str | None = None,
+    ) -> str:
+        params = {
+            "client_id": self.client_id,
+            "response_type": "code",
+            "redirect_uri": self.redirect_uri,
+            "scope": "openid",
+        }
+        state = encode_frappe_oauth_state(
+            invite_token=invite_token,
+            timezone=timezone,
+            language=language,
+            redirect_url=redirect_url,
+        )
+        params["state"] = state
+        return f"{self._endpoint(self._AUTHORIZE_PATH)}?{urllib.parse.urlencode(params)}"
+
+    @override
+    def get_access_token(self, code: str) -> str:
+        response = ssrf_proxy.post(
+            self._endpoint(self._TOKEN_PATH),
+            data={
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": self.redirect_uri,
+            },
+            headers={"Accept": "application/json"},
+            max_retries=0,
+        )
+        response.raise_for_status()
+        response_json = ACCESS_TOKEN_RESPONSE_ADAPTER.validate_python(_json_object(response))
+        access_token = response_json.get("access_token")
+        if not access_token:
+            raise ValueError("Error in Frappe OAuth token response")
+        return access_token
+
+    @override
+    def get_raw_user_info(self, token: str) -> JsonObject:
+        response = ssrf_proxy.get(
+            self._endpoint(self._USER_INFO_PATH),
+            headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+            max_retries=0,
+        )
+        response.raise_for_status()
+        return _json_object(response)
+
+    @override
+    def _transform_user_info(self, raw_info: JsonObject) -> OAuthUserInfo:
+        payload = FRAPPE_RAW_USER_INFO_ADAPTER.validate_python(raw_info)
+        if not payload["sub"] or not payload["email"]:
+            raise ValueError("Frappe OAuth returned an incomplete user profile")
+        try:
+            issuer = self._validate_base_url(payload["iss"])
+        except ValueError as e:
+            raise ValueError("Frappe OAuth returned an unexpected issuer") from e
+        if issuer != self.base_url:
+            raise ValueError("Frappe OAuth returned an unexpected issuer")
+        if self.allowed_roles.isdisjoint(payload["roles"]):
+            raise ValueError("Your Frappe account is not authorized to access Dify")
+        return OAuthUserInfo(
+            id=payload["sub"],
+            name=payload.get("name") or "",
+            email=payload["email"],
+        )
