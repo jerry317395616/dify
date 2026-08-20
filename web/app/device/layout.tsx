@@ -1,6 +1,7 @@
 'use client'
 import { cn } from '@langgenius/dify-ui/cn'
 import { useSuspenseQuery } from '@tanstack/react-query'
+import { ProductCopyright } from '@/features/ione-branding/copyright'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 import Header from './_header'
 
@@ -18,9 +19,7 @@ export default function DeviceLayout({ children }: { children: React.ReactNode }
           <div className="flex flex-col md:w-100">{children}</div>
         </div>
         {systemFeatures.branding.enabled === false && (
-          <div className="px-8 py-6 system-xs-regular text-text-tertiary">
-            © {new Date().getFullYear()} LangGenius, Inc. All rights reserved.
-          </div>
+          <ProductCopyright className="px-8 py-6 system-xs-regular text-text-tertiary" />
         )}
       </div>
     </div>

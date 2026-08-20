@@ -4,6 +4,7 @@ import type { PropsWithChildren } from 'react'
 import { cn } from '@langgenius/dify-ui/cn'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { ProductCopyright } from '@/features/ione-branding/copyright'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 import useDocumentTitle from '@/hooks/use-document-title'
 
@@ -26,9 +27,7 @@ export default function SignInLayout({ children }: PropsWithChildren) {
             <div className="flex justify-center md:w-110 lg:w-150">{children}</div>
           </div>
           {systemFeatures.branding.enabled === false && (
-            <div className="px-8 py-6 system-xs-regular text-text-tertiary">
-              © {new Date().getFullYear()} LangGenius, Inc. All rights reserved.
-            </div>
+            <ProductCopyright className="px-8 py-6 system-xs-regular text-text-tertiary" />
           )}
         </div>
       </div>

@@ -2,6 +2,7 @@
 import { cn } from '@langgenius/dify-ui/cn'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import Header from '@/app/signin/_header'
+import { ProductCopyright } from '@/features/ione-branding/copyright'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 
 export default function ResetPasswordLayout({ children }: { children: React.ReactNode }) {
@@ -25,9 +26,7 @@ export default function ResetPasswordLayout({ children }: { children: React.Reac
           <div className="flex w-100 flex-col">{children}</div>
         </div>
         {!systemFeatures.branding.enabled && (
-          <div className="px-8 py-6 system-xs-regular text-text-tertiary">
-            © {new Date().getFullYear()} LangGenius, Inc. All rights reserved.
-          </div>
+          <ProductCopyright className="px-8 py-6 system-xs-regular text-text-tertiary" />
         )}
       </div>
     </div>

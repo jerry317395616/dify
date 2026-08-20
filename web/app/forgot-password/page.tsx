@@ -3,6 +3,7 @@ import { cn } from '@langgenius/dify-ui/cn'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import * as React from 'react'
 import ChangePasswordForm from '@/app/forgot-password/ChangePasswordForm'
+import { ProductCopyright } from '@/features/ione-branding/copyright'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 import { useSearchParams } from '@/next/navigation'
 import Header from '../signin/_header'
@@ -23,9 +24,7 @@ const ForgotPassword = () => {
         <Header />
         {token ? <ChangePasswordForm /> : <ForgotPasswordForm />}
         {!systemFeatures.branding.enabled && (
-          <div className="px-8 py-6 text-sm font-normal text-text-tertiary">
-            © {new Date().getFullYear()} LangGenius, Inc. All rights reserved.
-          </div>
+          <ProductCopyright className="px-8 py-6 text-sm font-normal text-text-tertiary" />
         )}
       </div>
     </div>

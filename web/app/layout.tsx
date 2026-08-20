@@ -8,6 +8,7 @@ import { ThemeProvider } from 'next-themes'
 import { NuqsAdapter } from 'nuqs/adapters/next/app'
 import { IS_PROD } from '@/config'
 import { getDatasetMap } from '@/env'
+import { isIoneBrandedUi } from '@/features/ione-branding/feature-flag'
 import { SystemFeaturesBootstrapBoundary } from '@/features/system-features/bootstrap-boundary'
 import {
   getSystemFeaturesQueryClient,
@@ -36,6 +37,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const applicationTitle = getApplicationTitle(systemFeatures?.branding)
 
   return {
+    icons: isIoneBrandedUi() ? { icon: '/logo/ione-mark.svg' } : undefined,
     title: {
       default: applicationTitle,
       template: `%s - ${applicationTitle}`,

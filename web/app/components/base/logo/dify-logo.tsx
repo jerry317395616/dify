@@ -2,6 +2,8 @@ import type { VariantProps } from 'class-variance-authority'
 import type { ComponentProps } from 'react'
 import { cn } from '@langgenius/dify-ui/cn'
 import { cva } from 'class-variance-authority'
+import { isIoneBrandedUi } from '@/features/ione-branding/feature-flag'
+import { IONE_PRODUCT_NAME } from '@/features/ione-branding/product'
 import { basePath } from '@/utils/var'
 
 const difyLogoVariants = cva(
@@ -30,15 +32,16 @@ export type DifyLogoProps = Omit<
 
 export function DifyLogo({ alt, className, size, ...props }: DifyLogoProps) {
   const classes = cn(difyLogoVariants({ size, className }))
+  const ioneBrandedUi = isIoneBrandedUi()
 
   return (
     <img
       {...props}
-      src={`${basePath}/logo/logo.svg`}
+      src={`${basePath}/logo/${ioneBrandedUi ? 'ione-logo.svg' : 'logo.svg'}`}
       width={48}
       height={22}
       className={classes}
-      alt={alt}
+      alt={ioneBrandedUi && alt ? IONE_PRODUCT_NAME : alt}
     />
   )
 }

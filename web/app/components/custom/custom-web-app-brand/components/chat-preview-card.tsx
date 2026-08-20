@@ -1,5 +1,6 @@
 import { Button } from '@langgenius/dify-ui/button'
 import { cn } from '@langgenius/dify-ui/cn'
+import { getProductName } from '@/features/ione-branding/product'
 import PoweredByBrand from './powered-by-brand'
 
 type ChatPreviewCardProps = {
@@ -76,7 +77,7 @@ const ChatPreviewCard = ({
             </Button>
           </div>
           <div className="flex h-13 w-144.5 items-center rounded-xl border border-components-chat-input-border bg-components-panel-bg-blur pl-3.5 body-lg-regular text-text-placeholder shadow-md backdrop-blur-xs">
-            Talk to Dify
+            Talk to {getProductName()}
           </div>
         </div>
       </div>

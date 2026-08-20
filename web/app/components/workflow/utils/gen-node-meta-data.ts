@@ -1,6 +1,7 @@
 import type { BlockEnum } from '@/app/components/workflow/types'
 import type { UseDifyNodesPath } from '@/types/doc-paths'
 import { BlockClassification } from '@/app/components/workflow/block-selector/types'
+import { getProductName } from '@/features/ione-branding/product'
 
 type GenNodeMetaDataParams = {
   classification?: BlockClassification
@@ -20,7 +21,7 @@ export const genNodeMetaData = ({
   sort,
   type,
   title = '',
-  author = 'Dify',
+  author = getProductName(),
   helpLinkUri,
   isRequired = false,
   isUndeletable = false,

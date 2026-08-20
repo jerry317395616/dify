@@ -2,6 +2,7 @@
 import type { ReactNode } from 'react'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import Header from '@/app/signin/_header'
+import { ProductCopyright } from '@/features/ione-branding/copyright'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 
 type Props = {
@@ -21,9 +22,10 @@ export default function OAuthAuthorizeLayout({ children }: Props) {
           <div className="flex flex-col md:w-100">{children}</div>
         </div>
         {systemFeatures.branding.enabled === false && (
-          <div className="px-8 py-6 system-xs-regular text-text-tertiary">
-            © {copyrightYear} LangGenius, Inc. All rights reserved.
-          </div>
+          <ProductCopyright
+            className="px-8 py-6 system-xs-regular text-text-tertiary"
+            year={copyrightYear}
+          />
         )}
       </div>
     </div>

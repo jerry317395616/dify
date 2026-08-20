@@ -7,6 +7,7 @@ import { Dialog, DialogCloseButton, DialogContent, DialogTitle } from '@langgeni
 import dayjs from 'dayjs'
 import { useTranslation } from 'react-i18next'
 import { DifyLogo } from '@/app/components/base/logo/dify-logo'
+import { getCopyrightOwner } from '@/features/ione-branding/product'
 import Link from '@/next/link'
 
 type AccountAboutDialogProps = {
@@ -40,7 +41,9 @@ export default function AccountAboutDialog({
             Version {langGeniusVersionInfo.current_version}
           </div>
           <div className="flex flex-col items-center gap-2 text-center system-xs-regular text-text-secondary">
-            <div>©{dayjs().year()} LangGenius, Inc., Contributors.</div>
+            <div>
+              ©{dayjs().year()} {getCopyrightOwner()}, Contributors.
+            </div>
             <div className="text-text-accent">
               {isNonCloudEdition && (
                 <Link

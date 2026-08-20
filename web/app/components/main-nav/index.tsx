@@ -15,6 +15,7 @@ import { userProfileQueryOptions } from '@/features/account-profile/client'
 import { isAgentV2Enabled } from '@/features/agent-v2/feature-flag'
 import { useCanManageAgents } from '@/features/agent-v2/permissions'
 import { isIoneBrandedUi } from '@/features/ione-branding/feature-flag'
+import { getProductName } from '@/features/ione-branding/product'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 import dynamic from '@/next/dynamic'
 import Link from '@/next/link'
@@ -74,7 +75,7 @@ export function MainNav({ className }: MainNavProps) {
     const appTitle =
       systemFeatures.branding.enabled && systemFeatures.branding.application_title
         ? systemFeatures.branding.application_title
-        : 'Dify'
+        : getProductName()
 
     return (
       <Link

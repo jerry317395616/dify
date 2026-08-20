@@ -11,6 +11,7 @@ import {
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDocLink } from '@/context/i18n'
+import { getProductName } from '@/features/ione-branding/product'
 import { AppModeEnum } from '@/types/app'
 
 type IShareLinkProps = {
@@ -151,7 +152,7 @@ const CustomizeModal: FC<IShareLinkProps> = ({
                   NEXT_PUBLIC_APP_ID=
                   {`'${appId}'`} <br />
                   NEXT_PUBLIC_APP_KEY=
-                  {"'<Web API Key From Dify>'"} <br />
+                  {`'<Web API Key From ${getProductName()}>'`} <br />
                   NEXT_PUBLIC_API_URL=
                   {`'${api_base_url}'`}
                 </pre>

@@ -2,6 +2,8 @@ import type { ResourceKey } from 'i18next'
 import type { Locale } from './language'
 import type { Namespace, NamespaceInFileName } from './resources'
 import { kebabCase } from 'es-toolkit/string'
+import { isIoneBrandedUi } from '@/features/ione-branding/feature-flag'
+import { replaceIoneBrandNamesInResource } from '@/features/ione-branding/text'
 import { LanguagesSupported } from './language'
 
 type LocaleResourceModule = {
@@ -33,5 +35,11 @@ export const loadI18nResource = async (
   namespace: Namespace | NamespaceInFileName,
 ) => {
   const { loadResource } = await loadLocaleResources(locale)
-  return loadResource(kebabCase(namespace))
+  const resource = await loadResource(kebabCase(namespace))
+
+  return {
+    default: isIoneBrandedUi()
+      ? replaceIoneBrandNamesInResource(resource.default)
+      : resource.default,
+  }
 }
