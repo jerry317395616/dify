@@ -28,6 +28,7 @@ def _oauth_config(config_overrides) -> None:
     config_overrides(
         CONSOLE_WEB_URL="http://localhost:3000",
         FRAPPE_OAUTH_BASE_URL=None,
+        FRAPPE_OAUTH_INTERNAL_BASE_URL=None,
         FRAPPE_OAUTH_CLIENT_ID=None,
         FRAPPE_OAUTH_CLIENT_SECRET=None,
         FRAPPE_OAUTH_ALLOWED_ROLES="",
@@ -76,6 +77,7 @@ class TestGetOAuthProviders:
     def test_should_configure_frappe_provider_only_when_allowlist_is_complete(self, app: Flask, config_overrides):
         config_overrides(
             FRAPPE_OAUTH_BASE_URL="https://child.myyr.top",
+            FRAPPE_OAUTH_INTERNAL_BASE_URL="http://frontend:8080",
             FRAPPE_OAUTH_CLIENT_ID="frappe_client_id",
             FRAPPE_OAUTH_CLIENT_SECRET="frappe_client_secret",
             FRAPPE_OAUTH_ALLOWED_ROLES="System Manager, I-ONE Agent Manager",
@@ -88,6 +90,7 @@ class TestGetOAuthProviders:
         frappe_provider = providers["frappe"]
         assert frappe_provider is not None
         assert frappe_provider.redirect_uri == "https://dify.myyr.top/console/api/oauth/authorize/frappe"
+        assert frappe_provider.internal_base_url == "http://frontend:8080"
         assert frappe_provider.allowed_roles == frozenset({"System Manager", "I-ONE Agent Manager"})
 
         config_overrides(FRAPPE_OAUTH_ALLOWED_ROLES="")

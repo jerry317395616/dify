@@ -58,6 +58,7 @@ production-specific settings are:
 
 ```dotenv
 FRAPPE_OAUTH_BASE_URL=https://child.myyr.top
+FRAPPE_OAUTH_INTERNAL_BASE_URL=http://frontend:8080
 FRAPPE_OAUTH_CLIENT_ID=<oauth-client-id>
 FRAPPE_OAUTH_CLIENT_SECRET=<oauth-client-secret>
 FRAPPE_OAUTH_ALLOWED_ROLES=I-ONE Agent Manager,System Manager
@@ -65,6 +66,13 @@ FRAPPE_OAUTH_JIT_ENABLED=true
 FRAPPE_OAUTH_JIT_TENANT_ID=7cdfa690-411d-425d-a3b3-c19bf338c2f5
 FRAPPE_OAUTH_JIT_TENANT_ROLE=admin
 ```
+
+`FRAPPE_OAUTH_BASE_URL` remains the public browser authorization origin and the
+expected OpenID issuer. `FRAPPE_OAUTH_INTERNAL_BASE_URL` is used only by the
+Dify API container for the code/token and userinfo calls; the Compose override
+joins that container to `IONE_FRAPPE_NETWORK` and preserves
+`Host: child.myyr.top` for Frappe site routing. Keep the internal value on a
+private IP or a single-label Docker service name.
 
 Role names are exact, comma-separated Frappe role names. JIT is disabled in the
 example file by default. When enabled, it bypasses neither the Frappe role

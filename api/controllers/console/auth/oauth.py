@@ -103,6 +103,7 @@ def get_oauth_providers():
                     redirect_uri=dify_config.CONSOLE_API_URL + "/console/api/oauth/authorize/frappe",
                     base_url=dify_config.FRAPPE_OAUTH_BASE_URL or "",
                     allowed_roles=frappe_allowed_roles,
+                    internal_base_url=dify_config.FRAPPE_OAUTH_INTERNAL_BASE_URL,
                 )
             except ValueError:
                 logger.exception("Frappe OAuth configuration is invalid")

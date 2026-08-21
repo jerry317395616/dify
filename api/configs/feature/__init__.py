@@ -1014,6 +1014,11 @@ class AuthConfig(BaseSettings):
         default=None,
     )
 
+    FRAPPE_OAUTH_INTERNAL_BASE_URL: str | None = Field(
+        description="Optional private origin used only for server-side Frappe OAuth token and userinfo requests",
+        default=None,
+    )
+
     FRAPPE_OAUTH_CLIENT_ID: str | None = Field(
         description="OAuth client ID issued by the Frappe site",
         default=None,

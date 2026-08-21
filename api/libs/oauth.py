@@ -1,8 +1,10 @@
 import base64
 import binascii
 import hashlib
+import ipaddress
 import json
 import logging
+import re
 import secrets
 import urllib.parse
 from dataclasses import dataclass
@@ -27,6 +29,18 @@ JSON_OBJECT_LIST_ADAPTER: TypeAdapter[JsonObjectList] = TypeAdapter(JsonObjectLi
 _http_client: httpx.Client = get_pooled_http_client(
     "oauth:default",
     lambda: httpx.Client(limits=httpx.Limits(max_keepalive_connections=50, max_connections=100)),
+)
+
+# This client is used only for an explicitly configured, validated Docker or
+# private-network Frappe origin. It must never inherit a host proxy: doing so
+# would route credentials back through Dify's SSRF proxy and defeat the private
+# service path.
+_frappe_internal_http_client: httpx.Client = get_pooled_http_client(
+    "oauth:frappe-internal",
+    lambda: httpx.Client(
+        limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+        trust_env=False,
+    ),
 )
 
 
@@ -382,9 +396,12 @@ class FrappeOAuth(OAuth):
         redirect_uri: str,
         base_url: str,
         allowed_roles: set[str],
+        internal_base_url: str | None = None,
     ):
         super().__init__(client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri)
         self.base_url = self._validate_base_url(base_url)
+        self.internal_base_url = self._validate_internal_base_url(internal_base_url)
+        self._public_host_header = urllib.parse.urlsplit(self.base_url).netloc
         self.allowed_roles = frozenset(role.strip() for role in allowed_roles if role.strip())
         if not self.allowed_roles:
             raise ValueError("Frappe OAuth requires at least one allowed role")
@@ -405,8 +422,51 @@ class FrappeOAuth(OAuth):
 
         return urllib.parse.urlunsplit(("https", parsed.netloc.lower(), "", "", ""))
 
+    @staticmethod
+    def _validate_internal_base_url(base_url: str | None) -> str | None:
+        if not base_url or not base_url.strip():
+            return None
+
+        parsed = urllib.parse.urlsplit(base_url.strip())
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            raise ValueError("Frappe OAuth internal base URL must be a private HTTP(S) origin")
+
+        hostname = parsed.hostname.rstrip(".").lower()
+        try:
+            address = ipaddress.ip_address(hostname)
+            is_private_target = address.is_private or address.is_loopback or address.is_link_local
+        except ValueError:
+            # Docker Compose service names are single-label DNS names. Keeping
+            # this deliberately narrow prevents an administrator typo from
+            # turning the direct client into a public SSRF path.
+            is_private_target = bool(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", hostname))
+        if not is_private_target:
+            raise ValueError("Frappe OAuth internal base URL must target a private IP or Docker service name")
+
+        try:
+            _ = parsed.port
+        except ValueError as e:
+            raise ValueError("Frappe OAuth internal base URL has an invalid port") from e
+        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc.lower(), "", "", ""))
+
     def _endpoint(self, path: str) -> str:
         return f"{self.base_url}{path}"
+
+    def _server_endpoint(self, path: str) -> str:
+        return f"{self.internal_base_url or self.base_url}{path}"
+
+    def _server_headers(self, **headers: str) -> dict[str, str]:
+        if self.internal_base_url:
+            headers["Host"] = self._public_host_header
+        return headers
 
     @override
     def get_authorization_url(
@@ -433,18 +493,27 @@ class FrappeOAuth(OAuth):
 
     @override
     def get_access_token(self, code: str) -> str:
-        response = ssrf_proxy.post(
-            self._endpoint(self._TOKEN_PATH),
-            data={
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "code": code,
-                "grant_type": "authorization_code",
-                "redirect_uri": self.redirect_uri,
-            },
-            headers={"Accept": "application/json"},
-            max_retries=0,
-        )
+        data = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": self.redirect_uri,
+        }
+        headers = self._server_headers(Accept="application/json")
+        if self.internal_base_url:
+            response = _frappe_internal_http_client.post(
+                self._server_endpoint(self._TOKEN_PATH),
+                data=data,
+                headers=headers,
+            )
+        else:
+            response = ssrf_proxy.post(
+                self._server_endpoint(self._TOKEN_PATH),
+                data=data,
+                headers=headers,
+                max_retries=0,
+            )
         response.raise_for_status()
         response_json = ACCESS_TOKEN_RESPONSE_ADAPTER.validate_python(_json_object(response))
         access_token = response_json.get("access_token")
@@ -454,11 +523,15 @@ class FrappeOAuth(OAuth):
 
     @override
     def get_raw_user_info(self, token: str) -> JsonObject:
-        response = ssrf_proxy.get(
-            self._endpoint(self._USER_INFO_PATH),
-            headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
-            max_retries=0,
-        )
+        headers = self._server_headers(Accept="application/json", Authorization=f"Bearer {token}")
+        if self.internal_base_url:
+            response = _frappe_internal_http_client.get(self._server_endpoint(self._USER_INFO_PATH), headers=headers)
+        else:
+            response = ssrf_proxy.get(
+                self._server_endpoint(self._USER_INFO_PATH),
+                headers=headers,
+                max_retries=0,
+            )
         response.raise_for_status()
         return _json_object(response)
 

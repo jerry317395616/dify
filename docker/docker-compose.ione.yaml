@@ -12,6 +12,7 @@ services:
     environment:
       <<: *ione-public-api-urls
       FRAPPE_OAUTH_BASE_URL: ${FRAPPE_OAUTH_BASE_URL:-}
+      FRAPPE_OAUTH_INTERNAL_BASE_URL: ${FRAPPE_OAUTH_INTERNAL_BASE_URL:-http://frontend:8080}
       FRAPPE_OAUTH_CLIENT_ID: ${FRAPPE_OAUTH_CLIENT_ID:-}
       FRAPPE_OAUTH_CLIENT_SECRET: ${FRAPPE_OAUTH_CLIENT_SECRET:-}
       FRAPPE_OAUTH_ALLOWED_ROLES: ${FRAPPE_OAUTH_ALLOWED_ROLES:-}
@@ -22,6 +23,7 @@ services:
       HOSTED_FETCH_APP_TEMPLATES_MODE: ${HOSTED_FETCH_APP_TEMPLATES_MODE:-db}
     networks:
       - ione_qwen
+      - frappe_internal
 
   api_websocket:
     image: ${IONE_DIFY_API_IMAGE:-ione/dify-api:local}
@@ -61,4 +63,7 @@ services:
 networks:
   ione_qwen:
     name: ${IONE_QWEN_NETWORK:-ione-qwen-internal}
+    external: true
+  frappe_internal:
+    name: ${IONE_FRAPPE_NETWORK:-frappe-unified_default}
     external: true

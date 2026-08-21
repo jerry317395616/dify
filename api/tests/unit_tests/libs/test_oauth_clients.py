@@ -405,6 +405,27 @@ class TestFrappeOAuth(BaseOAuthTest):
                 allowed_roles={"I-ONE Agent Manager"},
             )
 
+    @pytest.mark.parametrize(
+        "internal_base_url",
+        [
+            "https://public.example.com",
+            "http://user:password@frontend:8080",
+            "http://frontend:8080/nested",
+            "http://frontend:8080?redirect=evil",
+            "file://frontend",
+        ],
+    )
+    def test_should_reject_unsafe_internal_base_url(self, oauth_config, internal_base_url):
+        with pytest.raises(ValueError, match="internal base URL"):
+            FrappeOAuth(
+                oauth_config["client_id"],
+                oauth_config["client_secret"],
+                oauth_config["redirect_uri"],
+                base_url="https://child.myyr.top",
+                allowed_roles={"I-ONE Agent Manager"},
+                internal_base_url=internal_base_url,
+            )
+
     @patch("libs.oauth.ssrf_proxy.post", autospec=True)
     def test_should_exchange_code_through_ssrf_client(self, mock_post, oauth, oauth_config, mock_response):
         mock_response.json.return_value = {"access_token": "frappe_access_token"}
@@ -424,6 +445,36 @@ class TestFrappeOAuth(BaseOAuthTest):
             },
             headers={"Accept": "application/json"},
             max_retries=0,
+        )
+
+    @patch("libs.oauth._frappe_internal_http_client.post", autospec=True)
+    def test_should_exchange_code_through_private_service(
+        self, mock_post, oauth_config, mock_response, config_overrides
+    ):
+        config_overrides(SECRET_KEY="frappe-oauth-state-secret")
+        oauth = FrappeOAuth(
+            oauth_config["client_id"],
+            oauth_config["client_secret"],
+            oauth_config["redirect_uri"],
+            base_url="https://child.myyr.top",
+            allowed_roles={"I-ONE Agent Manager"},
+            internal_base_url="http://frontend:8080",
+        )
+        mock_response.json.return_value = {"access_token": "frappe_access_token"}
+        mock_post.return_value = mock_response
+
+        assert oauth.get_access_token("test_code") == "frappe_access_token"
+
+        mock_post.assert_called_once_with(
+            "http://frontend:8080/api/method/frappe.integrations.oauth2.get_token",
+            data={
+                "client_id": oauth_config["client_id"],
+                "client_secret": oauth_config["client_secret"],
+                "code": "test_code",
+                "grant_type": "authorization_code",
+                "redirect_uri": oauth_config["redirect_uri"],
+            },
+            headers={"Accept": "application/json", "Host": "child.myyr.top"},
         )
 
     @patch("libs.oauth.ssrf_proxy.get", autospec=True)
@@ -449,6 +500,39 @@ class TestFrappeOAuth(BaseOAuthTest):
             "https://child.myyr.top/api/method/frappe.integrations.oauth2.openid_profile",
             headers={"Accept": "application/json", "Authorization": "Bearer test_token"},
             max_retries=0,
+        )
+
+    @patch("libs.oauth._frappe_internal_http_client.get", autospec=True)
+    def test_should_fetch_userinfo_through_private_service(
+        self, mock_get, oauth_config, mock_response, config_overrides
+    ):
+        config_overrides(SECRET_KEY="frappe-oauth-state-secret")
+        oauth = FrappeOAuth(
+            oauth_config["client_id"],
+            oauth_config["client_secret"],
+            oauth_config["redirect_uri"],
+            base_url="https://child.myyr.top",
+            allowed_roles={"I-ONE Agent Manager"},
+            internal_base_url="http://frontend:8080",
+        )
+        mock_response.json.return_value = {
+            "sub": "frappe-subject",
+            "name": "Test Manager",
+            "email": "manager@example.com",
+            "iss": "https://child.myyr.top",
+            "roles": ["I-ONE Agent Manager"],
+        }
+        mock_get.return_value = mock_response
+
+        assert oauth.get_user_info("test_token").email == "manager@example.com"
+
+        mock_get.assert_called_once_with(
+            "http://frontend:8080/api/method/frappe.integrations.oauth2.openid_profile",
+            headers={
+                "Accept": "application/json",
+                "Authorization": "Bearer test_token",
+                "Host": "child.myyr.top",
+            },
         )
 
     @patch("libs.oauth.ssrf_proxy.get", autospec=True)
