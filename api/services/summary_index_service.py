@@ -90,8 +90,18 @@ class SummaryIndexService:
             session=session,
         )
 
-        if not summary_content:
-            raise ValueError("Generated summary is empty")
+        if not summary_content or not summary_content.strip():
+            # Very short PDF chunks (for example, a page number or separator) can
+            # legitimately produce an empty LLM response. The source text is the
+            # most faithful summary for those chunks and keeps the document-level
+            # summary index from being left in an error state.
+            summary_content = segment.content.strip()
+            if not summary_content:
+                raise ValueError("Generated summary is empty and the segment has no text fallback")
+            logger.warning(
+                "Generated summary is empty for segment %s; using the segment text as fallback",
+                segment.id,
+            )
 
         return summary_content, usage
 

@@ -114,7 +114,31 @@ def test_generate_summary_for_segment_passes_document_language(monkeypatch: pyte
     segment.get_document.assert_called_once_with(session=session)
 
 
-def test_generate_summary_for_segment_raises_when_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generate_summary_for_segment_uses_segment_text_when_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    usage = MagicMock()
+    paragraph_module = SimpleNamespace(
+        ParagraphIndexProcessor=SimpleNamespace(generate_summary=MagicMock(return_value=("", usage)))
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "core.rag.index_processor.processor.paragraph_index_processor",
+        paragraph_module,
+    )
+
+    segment = _segment()
+    segment.content = "  page 1  "
+
+    content, got_usage = SummaryIndexService.generate_summary_for_segment(
+        segment, _dataset(), {"a": 1}, session=MagicMock()
+    )
+
+    assert content == "page 1"
+    assert got_usage is usage
+
+
+def test_generate_summary_for_segment_raises_when_summary_and_source_are_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     paragraph_module = SimpleNamespace(
         ParagraphIndexProcessor=SimpleNamespace(generate_summary=MagicMock(return_value=("", MagicMock())))
     )
@@ -123,9 +147,11 @@ def test_generate_summary_for_segment_raises_when_empty(monkeypatch: pytest.Monk
         "core.rag.index_processor.processor.paragraph_index_processor",
         paragraph_module,
     )
+    segment = _segment()
+    segment.content = "  "
 
-    with pytest.raises(ValueError, match="Generated summary is empty"):
-        SummaryIndexService.generate_summary_for_segment(_segment(), _dataset(), {"a": 1}, session=MagicMock())
+    with pytest.raises(ValueError, match="segment has no text fallback"):
+        SummaryIndexService.generate_summary_for_segment(segment, _dataset(), {"a": 1}, session=MagicMock())
 
 
 def test_create_summary_record_updates_existing_and_reenables() -> None:
