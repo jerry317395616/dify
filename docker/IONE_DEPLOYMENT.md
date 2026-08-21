@@ -145,12 +145,33 @@ included user service. Dify remains operationally independent from Bench, while
 both stacks start automatically with the server:
 
 ```bash
-ln -sfn /path/to/active/dify-release ~/services/ione-dify/current
+release=/path/to/active/dify-release
+data_root="$HOME/services/ione-dify/data"
+
+# Bootstrap persistent data once from the release defaults. Every later
+# release must link to this same directory before Compose is started.
+if [ ! -e "$data_root/volumes" ]; then
+  mkdir -p "$data_root"
+  cp -a "$release/docker/volumes" "$data_root/volumes"
+fi
+if [ ! -L "$release/docker/volumes" ]; then
+  mv "$release/docker/volumes" "$release/docker/volumes.release-defaults"
+  ln -s "$data_root/volumes" "$release/docker/volumes"
+fi
+test "$(readlink -f "$release/docker/volumes")" = "$(readlink -f "$data_root/volumes")"
+
+ln -sfn "$release" "$HOME/services/ione-dify/current"
 install -Dm644 docker/systemd/ione-dify.service \
   ~/.config/systemd/user/ione-dify.service
 systemctl --user daemon-reload
 systemctl --user enable --now ione-dify.service
 ```
+
+Do not start a release with a release-local `docker/volumes` directory. It
+would isolate tenant RSA keys, uploads, Redis state, and plugin data from the
+persistent deployment. After switching an already-running release from a local
+directory to the persistent symlink, use `docker compose up -d --force-recreate`
+once so existing bind mounts are reattached to the corrected path.
 
 The Compose services use restart policies for process-level recovery. The
 systemd unit provides a stable lifecycle entry point for startup, reload and
