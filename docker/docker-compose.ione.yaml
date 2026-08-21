@@ -51,6 +51,13 @@ services:
       IONE_BRANDED_UI: ${IONE_BRANDED_UI:-true}
       NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-}
 
+  # Dify's client and Weaviate must use the same key. The upstream Compose
+  # exposes two independently configurable variables, which can silently drift
+  # and make every knowledge-base indexing task fail with HTTP 401.
+  weaviate:
+    environment:
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_API_KEY:-WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih}
+
   plugin_daemon:
     networks:
       - ione_qwen

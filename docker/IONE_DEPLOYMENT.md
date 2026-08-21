@@ -74,6 +74,11 @@ joins that container to `IONE_FRAPPE_NETWORK` and preserves
 `Host: child.myyr.top` for Frappe site routing. Keep the internal value on a
 private IP or a single-label Docker service name.
 
+The I-ONE Compose override deliberately sets Weaviate's accepted API key from
+`WEAVIATE_API_KEY`, the same variable used by the Dify API and workers. Do not
+override `WEAVIATE_AUTHENTICATION_APIKEY_ALLOWED_KEYS` separately in this
+deployment; separate values cause knowledge indexing to fail with HTTP 401.
+
 Role names are exact, comma-separated Frappe role names. JIT is disabled in the
 example file by default. When enabled, it bypasses neither the Frappe role
 allowlist nor Dify seat limits: it creates an account only after Frappe has
