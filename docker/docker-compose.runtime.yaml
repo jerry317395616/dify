@@ -1,0 +1,4 @@
+services:
+  local_sandbox:
+    # Keep the currently validated image until the 1.17.0 image is available.
+    image: langgenius/dify-agent-local-sandbox:1.16.1

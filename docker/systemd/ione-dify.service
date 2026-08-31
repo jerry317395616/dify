@@ -6,10 +6,10 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=%h/services/ione-dify/current/docker
-ExecStart=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml --profile collaboration up -d --remove-orphans
-ExecReload=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml --profile collaboration up -d --remove-orphans
-ExecStop=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml --profile collaboration stop
+WorkingDirectory=%h/frappe/dify/docker
+ExecStart=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml -f docker-compose.runtime.yaml --profile collaboration --profile postgresql --profile weaviate up -d --remove-orphans
+ExecReload=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml -f docker-compose.runtime.yaml --profile collaboration --profile postgresql --profile weaviate up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -p ione-dify --env-file .env --env-file ione.env -f docker-compose.yaml -f docker-compose.ione.yaml -f docker-compose.runtime.yaml --profile collaboration --profile postgresql --profile weaviate stop
 TimeoutStartSec=0
 TimeoutStopSec=5min
 
