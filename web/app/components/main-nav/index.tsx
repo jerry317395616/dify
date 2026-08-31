@@ -17,6 +17,7 @@ import { isAgentV2Enabled } from '@/features/agent-v2/feature-flag'
 import { useCanManageAgents } from '@/features/agent-v2/permissions'
 import { isIoneBrandedUi } from '@/features/ione-branding/feature-flag'
 import { getProductName } from '@/features/ione-branding/product'
+import { useCanViewSkills } from '@/features/skills/permissions'
 import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 import dynamic from '@/next/dynamic'
 import Link from '@/next/link'
@@ -42,6 +43,7 @@ export function MainNav({ className }: MainNavProps) {
   const agentV2Enabled = isAgentV2Enabled()
   const ioneBrandedUi = isIoneBrandedUi()
   const canManageAgents = useCanManageAgents()
+  const canViewSkills = useCanViewSkills()
   const enableSkill = useProviderContextSelector((state) => state.enableSkill)
   const showEnvTag = currentEnv === 'TESTING' || currentEnv === 'DEVELOPMENT'
   const helpMenuTriggerRef = useRef<HTMLButtonElement>(null)
@@ -53,6 +55,7 @@ export function MainNav({ className }: MainNavProps) {
         isMainNavRouteVisible(route, {
           agentV2Enabled,
           canManageAgents,
+          canViewSkills,
           isCurrentWorkspaceDatasetOperator,
           marketplaceEnabled: systemFeatures.enable_marketplace,
           skillEnabled: enableSkill,
@@ -68,6 +71,7 @@ export function MainNav({ className }: MainNavProps) {
       agentV2Enabled,
       canManageAgents,
       ioneBrandedUi,
+      canViewSkills,
       enableSkill,
       isCurrentWorkspaceDatasetOperator,
       systemFeatures.enable_marketplace,

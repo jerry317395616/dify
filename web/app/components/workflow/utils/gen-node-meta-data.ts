@@ -3,13 +3,15 @@ import type { UseDifyNodesPath } from '@/types/doc-paths'
 import { BlockClassification } from '@/app/components/workflow/block-selector/types'
 import { getProductName } from '@/features/ione-branding/product'
 
+type NodeHelpLinkUri = UseDifyNodesPath | `${UseDifyNodesPath}#${string}`
+
 type GenNodeMetaDataParams = {
   classification?: BlockClassification
   sort: number
   type: BlockEnum
   title?: string
   author?: string
-  helpLinkUri?: UseDifyNodesPath
+  helpLinkUri?: NodeHelpLinkUri
   isRequired?: boolean
   isUndeletable?: boolean
   isStart?: boolean
